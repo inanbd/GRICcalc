@@ -21,6 +21,7 @@ class FluidCard extends StatefulWidget {
     required this.onChanged,
     required this.onRemove,
     required this.canRemove,
+    this.autofocusRate = false,
   });
 
   final FluidInput fluid;
@@ -38,6 +39,10 @@ class FluidCard extends StatefulWidget {
   final VoidCallback onRemove;
   final bool canRemove;
 
+  /// Put the cursor in this line's rate or volume field as soon as it appears,
+  /// so a just-added line can be typed into without another tap.
+  final bool autofocusRate;
+
   @override
   State<FluidCard> createState() => _FluidCardState();
 }
@@ -52,12 +57,31 @@ class _FluidCardState extends State<FluidCard> {
   late final TextEditingController _rate = TextEditingController(
     text: trimmed(widget.fluid.rateValue, 2),
   );
+  final FocusNode _rateFocus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.autofocusRate) {
+      // After the first frame, so the field exists to receive focus. Selecting
+      // the placeholder zero means the first keystroke replaces it.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _rate.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: _rate.text.length,
+        );
+        _rateFocus.requestFocus();
+      });
+    }
+  }
 
   @override
   void dispose() {
     _name.dispose();
     _dextrose.dispose();
     _rate.dispose();
+    _rateFocus.dispose();
     super.dispose();
   }
 
@@ -146,6 +170,7 @@ class _FluidCardState extends State<FluidCard> {
                   Expanded(
                     child: _NumberField(
                       controller: _rate,
+                      focusNode: _rateFocus,
                       label: widget.fluid.rateUnit == RateUnit.mlPerFeed
                           ? 'Volume'
                           : 'Rate',
@@ -405,17 +430,20 @@ class _NumberField extends StatelessWidget {
     required this.label,
     required this.suffix,
     required this.onChanged,
+    this.focusNode,
   });
 
   final TextEditingController controller;
   final String label;
   final String suffix;
   final ValueChanged<double?> onChanged;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       controller: controller,
+      focusNode: focusNode,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: <TextInputFormatter>[
         FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),

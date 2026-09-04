@@ -157,10 +157,15 @@ class GirSummary {
 
   GirBand get band => girBandFor(totalGir);
 
-  /// Lines running a dextrose concentration above [peripheralDextroseLimit].
+  /// Infusions running above [peripheralDextroseLimit].
+  ///
+  /// Feeds are excluded: the limit is about what a cannula will tolerate, and
+  /// milk does not go through one. Flagging a fortified feed here would send
+  /// someone looking for central access that the baby does not need.
   List<FluidResult> get linesAbovePeripheralLimit => fluids
       .where(
         (FluidResult r) =>
+            !r.isFeed &&
             r.fluid.dextrosePercent > peripheralDextroseLimit &&
             r.mlPerHour > 0,
       )
@@ -241,7 +246,7 @@ double girFor({
   required double dextrosePercent,
   required double weightKg,
 }) {
-  if (weightKg <= 0) return 0;
+  if (weightKg <= 0 || mlPerHour <= 0 || dextrosePercent <= 0) return 0;
   return (mlPerHour * dextrosePercent) / (6 * weightKg);
 }
 
@@ -362,8 +367,12 @@ GirSummary summarise({
   );
 }
 
-/// Keeps a stray NaN or infinity from a malformed entry out of the totals.
-double _sanitise(double value) => value.isFinite ? value : 0;
+/// Keeps a stray NaN, infinity or negative out of the totals.
+///
+/// The keyboard cannot produce a negative, but stored JSON could, and a
+/// negative rate would quietly subtract from a total that a clinician reads as
+/// what the baby is receiving. Nothing here can be less than zero.
+double _sanitise(double value) => value.isFinite && value > 0 ? value : 0;
 
 class _Partial {
   _Partial(

@@ -10,9 +10,17 @@ class ResultsPanel extends StatelessWidget {
     super.key,
     required this.summary,
     this.scrollable = true,
+    this.onCopy,
+    this.onPrint,
   });
 
   final GirSummary summary;
+
+  /// Copies the three GIR figures. Omitted where there is nothing to copy.
+  final VoidCallback? onCopy;
+
+  /// Opens the printable report.
+  final VoidCallback? onPrint;
 
   /// Whether the panel provides its own scrolling (side column, bottom sheet)
   /// or is embedded in a scroll view owned by the caller.
@@ -33,6 +41,31 @@ class ResultsPanel extends StatelessWidget {
             const SizedBox(height: 16),
           ],
           _TotalsTable(summary: summary),
+          if (onCopy != null || onPrint != null) ...<Widget>[
+            const SizedBox(height: 16),
+            Row(
+              children: <Widget>[
+                if (onCopy != null)
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onCopy,
+                      icon: const Icon(Icons.copy_outlined, size: 18),
+                      label: const Text('Copy'),
+                    ),
+                  ),
+                if (onCopy != null && onPrint != null)
+                  const SizedBox(width: 12),
+                if (onPrint != null)
+                  Expanded(
+                    child: FilledButton.tonalIcon(
+                      onPressed: onPrint,
+                      icon: const Icon(Icons.print_outlined, size: 18),
+                      label: const Text('Print'),
+                    ),
+                  ),
+              ],
+            ),
+          ],
           const SizedBox(height: 16),
           _Flags(summary: summary),
         ],

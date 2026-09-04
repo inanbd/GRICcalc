@@ -12,6 +12,11 @@ running total of:
 
 ## What it does
 
+- **Print or copy the result.** Print produces a one-page report with the
+  working written out line by line, so a reader can re-derive every figure.
+  Copy puts the three GIR values on the clipboard, ready for a note.
+- **Light, dark, or whatever the device is doing** - one tap in the app bar,
+  remembered between sessions.
 - **Several babies at once.** Each patient keeps their own weight and fluid
   list, and the strip across the top switches between them in one tap. Records
   are stored on the device, so the app reopens where it was left.
@@ -92,11 +97,22 @@ flutter run              # or: flutter run -d chrome
 flutter test
 ```
 
-Covers the calculation layer (conversions, totals, banding, edge cases such as a
-missing weight), the patient store (auto-save, restoring records, duplicating,
-deleting, and surviving corrupt storage), and the screen itself (per-patient
-records, one-tap switching and adding, rate units, feeds counted in and out of
-the GIR, and the safety flags).
+Around a hundred tests, weighted towards the arithmetic, since that is what
+gets acted on:
+
+- `calculation_validation_test.dart` checks the GIR against two independently
+  derived formulations - one built up from units, one starting from a daily
+  volume - across a grid of weights from 400 g to 5 kg, concentrations from
+  2.5% to 50%, and rates from 0.1 to 20 mL/hr. It also pins the worked figures
+  published by infantfeeds.com, asserts totals never drift from the sum of
+  their parts, checks that unit conversions are lossless in both directions,
+  and confirms no input - negative, zero, NaN or infinite - can produce a
+  negative or non-finite result.
+- The rest covers the patient store (auto-save, restoring records,
+  duplicating, deleting, surviving corrupt storage), the report and copy text,
+  and the screen itself (per-patient records, one-tap switching and adding,
+  cursor placement, appearance, rate units, feeds counted in and out of the
+  GIR, and the safety flags).
 
 ## Releases
 
@@ -157,9 +173,11 @@ lib/
   logic/gir_calculator.dart   calculations and banding, no Flutter UI
   logic/formatting.dart       number formatting and lenient parsing
   logic/patient_store.dart    the patient list, and auto-saving it
+  logic/report.dart           the copy text and the printable PDF
+  logic/settings_store.dart   the appearance choice
   models/fluid_input.dart     a fluid line, rate units, presets
   models/patient.dart         one baby's record
-  screens/                    the calculator screen
+  screens/                    calculator, formula sheet, disclaimer
   widgets/                    patient strip and card, fluid card,
                               quick-add row, results panel, totals bar
   theme.dart                  colour scheme and status colours

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:griccalc/logic/patient_store.dart';
+import 'package:griccalc/logic/settings_store.dart';
 import 'package:griccalc/main.dart';
 import 'package:griccalc/models/fluid_input.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,14 +11,22 @@ import 'package:shared_preferences/shared_preferences.dart';
 Future<PatientStore> pumpApp(
   WidgetTester tester, {
   Size size = const Size(500, 2200),
+  SettingsStore? settings,
 }) async {
-  SharedPreferences.setMockInitialValues(<String, Object>{});
+  // A caller that brings its own settings store has already reset storage and
+  // loaded it; resetting again here would hand that store a stale backing map.
+  if (settings == null) {
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+  }
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
 
   final PatientStore store = PatientStore(writeDelay: Duration.zero);
-  await tester.pumpWidget(GirCalculatorApp(store: store));
+  final SettingsStore appSettings = settings ?? SettingsStore();
+  await tester.pumpWidget(
+    GirCalculatorApp(store: store, settings: appSettings),
+  );
   await tester.pumpAndSettle();
   return store;
 }
@@ -404,5 +414,236 @@ void main() {
     expect(restored.rateValue, 25);
     expect(restored.feedIntervalHours, 3);
     expect(restored.countsTowardGir, isTrue);
+  });
+
+  group('appearance', () {
+    testWidgets('follows the device until a mode is chosen', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SettingsStore settings = SettingsStore();
+      await settings.load();
+      await pumpApp(tester, settings: settings);
+
+      expect(settings.themeMode, ThemeMode.system);
+      expect(
+        tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+        ThemeMode.system,
+      );
+    });
+
+    testWidgets('picking dark switches the app over and sticks', (
+      WidgetTester tester,
+    ) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SettingsStore settings = SettingsStore();
+      await settings.load();
+      await pumpApp(tester, settings: settings);
+
+      // The dedicated button cycles: device -> light -> dark.
+      await tester.tap(find.byTooltip('Appearance: Match device'));
+      await tester.pumpAndSettle();
+      expect(settings.themeMode, ThemeMode.light);
+
+      await tester.tap(find.byTooltip('Appearance: Light'));
+      await tester.pumpAndSettle();
+
+      expect(settings.themeMode, ThemeMode.dark);
+      expect(
+        tester.widget<MaterialApp>(find.byType(MaterialApp)).themeMode,
+        ThemeMode.dark,
+      );
+      expect(
+        Theme.of(tester.element(find.byType(Scaffold).first)).brightness,
+        Brightness.dark,
+      );
+
+      // A store built over the same storage sees the choice already.
+      final SettingsStore reopened = SettingsStore();
+      await reopened.load();
+      expect(reopened.themeMode, ThemeMode.dark);
+    });
+
+    testWidgets('offers all three modes', (WidgetTester tester) async {
+      SharedPreferences.setMockInitialValues(<String, Object>{});
+      final SettingsStore settings = SettingsStore();
+      await settings.load();
+      await pumpApp(tester, settings: settings);
+
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Match device'), findsOneWidget);
+      expect(find.text('Light'), findsOneWidget);
+      expect(find.text('Dark'), findsOneWidget);
+    });
+  });
+
+  group('adding a line puts the cursor in it', () {
+    testWidgets('a new fluid takes focus on its rate field', (
+      WidgetTester tester,
+    ) async {
+      await pumpApp(tester);
+      await enterInto(tester, 'Weight', '1500');
+
+      await tester.tap(find.widgetWithText(ActionChip, 'D12.5W'));
+      await tester.pumpAndSettle();
+
+      // The last rate field is the one just added, and it holds the cursor.
+      final Finder rates = find.ancestor(
+        of: find.text('Rate'),
+        matching: find.byType(TextField),
+      );
+      final TextField added = tester.widget<TextField>(rates.last);
+      expect(added.focusNode?.hasFocus, isTrue);
+      // Its placeholder is selected, so the first keystroke replaces it.
+      expect(added.controller?.selection.start, 0);
+      expect(added.controller?.selection.end, added.controller?.text.length);
+    });
+
+    testWidgets('a new feed takes focus on its volume field', (
+      WidgetTester tester,
+    ) async {
+      await pumpApp(tester);
+      await enterInto(tester, 'Weight', '1500');
+
+      await tester.tap(find.widgetWithText(ActionChip, 'Breast milk'));
+      await tester.pumpAndSettle();
+
+      final TextField volume = tester.widget<TextField>(
+        find.ancestor(
+          of: find.text('Volume'),
+          matching: find.byType(TextField),
+        ),
+      );
+      expect(volume.focusNode?.hasFocus, isTrue);
+    });
+
+    testWidgets('typing straight away replaces the placeholder', (
+      WidgetTester tester,
+    ) async {
+      final PatientStore store = await pumpApp(tester);
+      await enterInto(tester, 'Weight', '1500');
+
+      await tester.tap(find.widgetWithText(ActionChip, 'Breast milk'));
+      await tester.pumpAndSettle();
+      tester.testTextInput.enterText('20');
+      await tester.pumpAndSettle();
+
+      expect(store.selected!.fluids.last.rateValue, 20);
+    });
+
+    testWidgets('switching patients does not re-open the keyboard', (
+      WidgetTester tester,
+    ) async {
+      await pumpApp(tester);
+      await enterInto(tester, 'Weight', '1500');
+      await tester.tap(find.widgetWithText(ActionChip, 'D12.5W'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.widgetWithText(ActionChip, 'Add patient'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Patient 1'));
+      await tester.pumpAndSettle();
+
+      final Finder rates = find.ancestor(
+        of: find.text('Rate'),
+        matching: find.byType(TextField),
+      );
+      for (final Element element in rates.evaluate()) {
+        final TextField field = element.widget as TextField;
+        expect(field.focusNode?.hasFocus ?? false, isFalse);
+      }
+    });
+  });
+
+  group('reference material', () {
+    testWidgets('the formula sheet covers feeds as well as infusions', (
+      WidgetTester tester,
+    ) async {
+      await pumpApp(tester, size: const Size(500, 2400));
+
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('How this is calculated'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('How this is calculated'), findsWidgets);
+      expect(find.text('Feeds - volume'), findsOneWidget);
+      expect(find.text('Feeds - glucose'), findsOneWidget);
+      expect(find.textContaining('feeds per day = 24'), findsOneWidget);
+      expect(find.textContaining('20 mL q3h'), findsOneWidget);
+      expect(find.textContaining('5.19 mg/kg/min'), findsOneWidget);
+    });
+
+    testWidgets('the disclaimer names who decides', (
+      WidgetTester tester,
+    ) async {
+      await pumpApp(tester, size: const Size(500, 2400));
+
+      await tester.tap(find.byTooltip('More'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Disclaimer & safety'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Disclaimer & safety'), findsWidgets);
+      expect(
+        find.textContaining('final decision rests with the treating physician'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('not a medical device'), findsOneWidget);
+      expect(find.text('Enteral GIR is an estimate'), findsOneWidget);
+      expect(find.text('Your data stays on the device'), findsOneWidget);
+    });
+  });
+
+  group('copying', () {
+    testWidgets('puts the three figures on the clipboard', (
+      WidgetTester tester,
+    ) async {
+      final List<MethodCall> calls = <MethodCall>[];
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform,
+        (MethodCall call) async {
+          calls.add(call);
+          return null;
+        },
+      );
+      addTearDown(
+        () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform,
+          null,
+        ),
+      );
+
+      await pumpApp(tester);
+      await enterInto(tester, 'Weight', '1500');
+      await enterInto(tester, 'Rate', '4');
+
+      await tester.tap(find.byTooltip('Copy GIR values'));
+      await tester.pumpAndSettle();
+
+      final MethodCall copy = calls.firstWhere(
+        (MethodCall c) => c.method == 'Clipboard.setData',
+      );
+      expect(
+        (copy.arguments as Map<Object?, Object?>)['text'],
+        'IV GIR: 4.44 mg/kg/min\n'
+        'Enteral GIR: 0.00 mg/kg/min\n'
+        'Total GIR: 4.44 mg/kg/min',
+      );
+      expect(find.text('GIR values copied.'), findsOneWidget);
+    });
+
+    testWidgets('asks for a weight before copying anything', (
+      WidgetTester tester,
+    ) async {
+      await pumpApp(tester);
+
+      await tester.tap(find.byTooltip('Copy GIR values'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Enter a weight first.'), findsOneWidget);
+    });
   });
 }

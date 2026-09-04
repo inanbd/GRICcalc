@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:printing/printing.dart';
 
 import '../logic/formatting.dart';
 import '../logic/gir_calculator.dart';
 import '../logic/patient_store.dart';
+import '../logic/report.dart';
+import '../logic/settings_store.dart';
 import '../models/fluid_input.dart';
 import '../models/patient.dart';
 import '../widgets/fluid_card.dart';
@@ -11,15 +15,18 @@ import '../widgets/patient_strip.dart';
 import '../widgets/quick_add_row.dart';
 import '../widgets/results_panel.dart';
 import '../widgets/totals_bar.dart';
+import 'disclaimer_screen.dart';
+import 'formula_sheet.dart';
 
 /// Width at which the results move into their own column beside the inputs.
 const double _wideLayoutBreakpoint = 900;
 
 class CalculatorScreen extends StatefulWidget {
-  const CalculatorScreen({super.key, this.store});
+  const CalculatorScreen({super.key, this.store, this.settings});
 
   /// Injected by tests; the app builds its own.
   final PatientStore? store;
+  final SettingsStore? settings;
 
   @override
   State<CalculatorScreen> createState() => _CalculatorScreenState();
@@ -35,6 +42,11 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
   /// The record the text fields currently hold, so they are only rewritten
   /// when the patient actually changes and never while it is being typed into.
   String? _boundPatientId;
+
+  /// The line whose rate or volume field should take the cursor. Set when a
+  /// line is added and cleared once the field has it, so the keyboard opens on
+  /// the new line and nowhere else.
+  String? _focusFluidId;
 
   @override
   void initState() {
@@ -83,6 +95,46 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     _bindControllers();
   }
 
+  void _addFluid({
+    String name = '',
+    double dextrosePercent = 10,
+    FluidRoute route = FluidRoute.intravenous,
+  }) {
+    _store.addFluid(name: name, dextrosePercent: dextrosePercent, route: route);
+    final List<FluidInput> fluids = _store.selected?.fluids ?? <FluidInput>[];
+    if (fluids.isNotEmpty) {
+      setState(() => _focusFluidId = fluids.last.id);
+    }
+  }
+
+  Future<void> _copyGirValues(GirSummary summary) async {
+    if (!summary.isValid) {
+      _notify('Enter a weight first.');
+      return;
+    }
+    await Clipboard.setData(ClipboardData(text: girSummaryText(summary)));
+    _notify('GIR values copied.');
+  }
+
+  Future<void> _printReport(GirSummary summary, Patient patient) async {
+    if (!summary.isValid) {
+      _notify('Enter a weight first.');
+      return;
+    }
+    final String label = patient.displayName(_store.selectedIndex + 1);
+    await Printing.layoutPdf(
+      name: 'GIR report - $label',
+      onLayout: (_) => buildReportPdf(summary: summary, patientName: label),
+    );
+  }
+
+  void _notify(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
   Future<void> _confirmDelete(Patient patient, int position) async {
     final bool confirmed =
         await showDialog<bool>(
@@ -111,7 +163,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     _rebindCurrent();
   }
 
-  void _showResultsSheet(GirSummary summary) {
+  void _showResultsSheet(GirSummary summary, Patient patient) {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -124,7 +176,12 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
             SingleChildScrollView(
               controller: controller,
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-              child: ResultsPanel(summary: summary, scrollable: false),
+              child: ResultsPanel(
+                summary: summary,
+                scrollable: false,
+                onCopy: () => _copyGirValues(summary),
+                onPrint: () => _printReport(summary, patient),
+              ),
             ),
       ),
     );
@@ -143,6 +200,12 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
       fluids: patient.fluids,
     );
 
+    // The card has taken the cursor by now; drop the request so returning to
+    // this patient later does not pop the keyboard open again.
+    if (_focusFluidId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _focusFluidId = null);
+    }
+
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool isWide = constraints.maxWidth >= _wideLayoutBreakpoint;
@@ -151,10 +214,34 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           appBar: AppBar(
             title: const Text('NICU GIR Calculator'),
             actions: <Widget>[
+              if (widget.settings case final SettingsStore settings)
+                IconButton(
+                  tooltip: 'Appearance: ${settings.themeMode.label}',
+                  onPressed: () {
+                    final ThemeMode next = settings.themeMode.next;
+                    settings.setThemeMode(next);
+                    _notify('Appearance: ${next.label}');
+                  },
+                  icon: Icon(settings.themeMode.icon),
+                ),
               IconButton(
-                tooltip: 'How this is calculated',
-                onPressed: () => _showFormulaDialog(context),
-                icon: const Icon(Icons.help_outline),
+                tooltip: 'Copy GIR values',
+                onPressed: () => _copyGirValues(summary),
+                icon: const Icon(Icons.copy_outlined),
+              ),
+              IconButton(
+                tooltip: 'Print report',
+                onPressed: () => _printReport(summary, patient),
+                icon: const Icon(Icons.print_outlined),
+              ),
+              _OverflowMenu(
+                settings: widget.settings,
+                onFormulas: () => showFormulaSheet(context),
+                onDisclaimer: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const DisclaimerScreen(),
+                  ),
+                ),
               ),
             ],
             bottom: PreferredSize(
@@ -176,7 +263,14 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
                   children: <Widget>[
                     Expanded(child: _inputs(patient, position, summary)),
                     const VerticalDivider(width: 1),
-                    SizedBox(width: 400, child: ResultsPanel(summary: summary)),
+                    SizedBox(
+                      width: 400,
+                      child: ResultsPanel(
+                        summary: summary,
+                        onCopy: () => _copyGirValues(summary),
+                        onPrint: () => _printReport(summary, patient),
+                      ),
+                    ),
                   ],
                 )
               : _inputs(patient, position, summary),
@@ -184,7 +278,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
               ? null
               : TotalsBar(
                   summary: summary,
-                  onTap: () => _showResultsSheet(summary),
+                  onTap: () => _showResultsSheet(summary, patient),
                 ),
         );
       },
@@ -242,6 +336,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
               index: i,
               weightKg: summary.weightKg,
               canRemove: true,
+              autofocusRate: patient.fluids[i].id == _focusFluidId,
               onChanged: _store.updateFluid,
               onRemove: () => _store.removeFluid(patient.fluids[i].id),
             ),
@@ -258,122 +353,86 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           ),
         const SizedBox(height: 8),
         QuickAddRow(
-          onAddPreset: (FluidPreset preset) => _store.addFluid(
+          onAddPreset: (FluidPreset preset) => _addFluid(
             name: preset.name,
             dextrosePercent: preset.dextrosePercent,
             route: preset.route,
           ),
-          onAddCustom: () => _store.addFluid(),
+          onAddCustom: () => _addFluid(),
         ),
       ],
     );
   }
 }
 
-void _showFormulaDialog(BuildContext context) {
-  showDialog<void>(
-    context: context,
-    builder: (BuildContext context) => AlertDialog(
-      title: const Text('How this is calculated'),
-      content: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: const <Widget>[
-            _FormulaEntry(
-              title: 'Glucose infusion rate',
-              formula: 'GIR = (rate mL/hr × dextrose %) ÷ (6 × weight kg)',
-              note:
-                  'A dextrose solution labelled "%" carries that many grams per '
-                  '100 mL. Converting grams to milligrams and hours to minutes '
-                  'is where the 6 comes from.',
-            ),
-            SizedBox(height: 16),
-            _FormulaEntry(
-              title: 'Worked example',
-              formula:
-                  'D10W at 4 mL/hr, 1250 g baby\n'
-                  '(4 × 10) ÷ (6 × 1.25) = 5.33 mg/kg/min',
-              note:
-                  'The same line delivers 76.8 mL/kg/day and 9.6 g of dextrose '
-                  'a day.',
-            ),
-            SizedBox(height: 16),
-            _FormulaEntry(
-              title: 'Daily fluid',
-              formula: 'mL/kg/day = (rate mL/hr × 24) ÷ weight kg',
-              note:
-                  'A rate entered as mL/kg/day is converted the other way: '
-                  'mL/hr = (mL/kg/day × weight kg) ÷ 24.',
-            ),
-            SizedBox(height: 16),
-            _FormulaEntry(
-              title: 'Totals',
-              formula:
-                  'Total GIR = sum of every line\'s GIR\n'
-                  'Total rate = sum of every line\'s mL/hr',
-              note:
-                  'Mean dextrose is the volume-weighted concentration of '
-                  'everything running.',
-            ),
-          ],
-        ),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
-        ),
-      ],
-    ),
-  );
-}
-
-class _FormulaEntry extends StatelessWidget {
-  const _FormulaEntry({
-    required this.title,
-    required this.formula,
-    required this.note,
+/// The less-used actions, kept out of the way of the numbers.
+class _OverflowMenu extends StatelessWidget {
+  const _OverflowMenu({
+    required this.settings,
+    required this.onFormulas,
+    required this.onDisclaimer,
   });
 
-  final String title;
-  final String formula;
-  final String note;
+  final SettingsStore? settings;
+  final VoidCallback onFormulas;
+  final VoidCallback onDisclaimer;
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(title, style: theme.textTheme.titleSmall),
-        const SizedBox(height: 6),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
+    final SettingsStore? store = settings;
+
+    return PopupMenuButton<Object>(
+      tooltip: 'More',
+      icon: const Icon(Icons.more_vert),
+      itemBuilder: (BuildContext context) => <PopupMenuEntry<Object>>[
+        const PopupMenuItem<Object>(
+          value: _MenuAction.formulas,
+          child: ListTile(
+            leading: Icon(Icons.help_outline),
+            title: Text('How this is calculated'),
+            contentPadding: EdgeInsets.zero,
           ),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Text(
-              formula,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                height: 1.5,
-                fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+        ),
+        const PopupMenuItem<Object>(
+          value: _MenuAction.disclaimer,
+          child: ListTile(
+            leading: Icon(Icons.gavel_outlined),
+            title: Text('Disclaimer & safety'),
+            contentPadding: EdgeInsets.zero,
+          ),
+        ),
+        if (store != null) ...<PopupMenuEntry<Object>>[
+          const PopupMenuDivider(),
+          const PopupMenuItem<Object>(
+            enabled: false,
+            child: Text('Appearance'),
+          ),
+          for (final ThemeMode mode in ThemeMode.values)
+            CheckedPopupMenuItem<Object>(
+              value: mode,
+              checked: store.themeMode == mode,
+              child: Row(
+                children: <Widget>[
+                  Icon(mode.icon, size: 20),
+                  const SizedBox(width: 12),
+                  Text(mode.label),
+                ],
               ),
             ),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          note,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
+        ],
       ],
+      onSelected: (Object value) {
+        switch (value) {
+          case _MenuAction.formulas:
+            onFormulas();
+          case _MenuAction.disclaimer:
+            onDisclaimer();
+          case final ThemeMode mode:
+            store?.setThemeMode(mode);
+        }
+      },
     );
   }
 }
+
+enum _MenuAction { formulas, disclaimer }
