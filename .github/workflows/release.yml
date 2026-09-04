@@ -93,14 +93,25 @@ jobs:
         run: |
           set -euo pipefail
           apk="dist/griccalc-${{ steps.tag.outputs.name }}-arm64-v8a.apk"
-          signer="$(find "$ANDROID_HOME/build-tools" -name apksigner | sort | tail -1)"
-          dn="$("$signer" verify --print-certs "$apk" | grep 'Signer #1 certificate DN' || true)"
-          echo "$dn"
-          if echo "$dn" | grep -q 'Android Debug'; then
-            echo "note=These APKs are signed with Android's **debug** key, because no signing secrets are configured. They install for sideloading, but the signature proves nothing about origin and a later properly signed build will not install over them. See README.md > Signing releases." >> "$GITHUB_OUTPUT"
-          else
-            echo "note=These APKs are signed with the project's release key." >> "$GITHUB_OUTPUT"
+          signer="$(find "${ANDROID_HOME:?ANDROID_HOME is not set}/build-tools" \
+            -name apksigner -type f | sort | tail -1)"
+          if [ -z "$signer" ]; then
+            echo "::error::apksigner not found under $ANDROID_HOME/build-tools" >&2
+            exit 1
           fi
+          echo "Using $signer"
+          # Deliberately no "|| true": if the certificate cannot be read, fail
+          # rather than fall through, because the fallthrough would overstate
+          # how the release was signed.
+          "$signer" verify --print-certs "$apk" > certs.txt
+          cat certs.txt
+          dn="$(grep 'Signer #1 certificate DN' certs.txt)"
+          if echo "$dn" | grep -q 'CN=Android Debug'; then
+            note="These APKs are signed with Android's **debug** key, because no signing secrets are configured. They install for sideloading, but the signature proves nothing about who built them, and a later properly signed build will not install over them. See README.md > Signing releases."
+          else
+            note="These APKs are signed with the project's release key."
+          fi
+          echo "note=$note" >> "$GITHUB_OUTPUT"
 
       - name: Publish release
         env:
@@ -134,6 +145,9 @@ jobs:
           NOTES
 
           if gh release view "$version" >/dev/null 2>&1; then
+            gh release edit "$version" \
+              --title "NICU GIR Calculator $version" \
+              --notes-file notes.md
             gh release upload "$version" dist/* --clobber
           else
             gh release create "$version" dist/* \
