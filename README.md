@@ -65,6 +65,58 @@ Covers the calculation layer (conversions, totals, banding, edge cases such as a
 missing weight) and the screen itself (entering a weight and fluids, adding
 lines, switching rate units, and the safety flags).
 
+## Releases
+
+Tagging publishes a GitHub Release with the Android APKs attached:
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+The `Release` workflow formats, analyses and tests the project, builds one APK
+per ABI plus a universal one, and uploads them with a `SHA256SUMS.txt`. It can
+also be run by hand from the Actions tab against an existing tag.
+
+Most devices want **arm64-v8a**; older 32-bit devices want **armeabi-v7a**;
+emulators generally want **x86_64**. The universal APK works anywhere at roughly
+triple the size.
+
+## Signing releases
+
+Without a keystore configured, release builds fall back to Android's **debug**
+key. They install for sideloading, but the signature says nothing about who
+built them, and a later properly signed build will not install over them.
+
+To sign for real, create a keystore and keep it out of the repository:
+
+```bash
+keytool -genkey -v -keystore release.jks -keyalg RSA -keysize 2048 \
+  -validity 10000 -alias griccalc
+```
+
+For local builds, write `android/key.properties` (already git-ignored):
+
+```properties
+storeFile=/absolute/path/to/release.jks
+storePassword=...
+keyAlias=griccalc
+keyPassword=...
+```
+
+For CI, add these repository secrets instead - the workflow picks them up
+automatically and the build signs itself:
+
+| Secret | Value |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 release.jks` |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore password |
+| `ANDROID_KEY_ALIAS` | key alias, e.g. `griccalc` |
+| `ANDROID_KEY_PASSWORD` | key password |
+
+Keep the keystore and its passwords backed up somewhere safe. Losing them means
+you can never ship an update that installs over an existing copy.
+
 ## Layout
 
 ```
