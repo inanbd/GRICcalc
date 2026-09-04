@@ -35,7 +35,6 @@ jobs:
 
       - uses: actions/checkout@v4
         with:
-          ref: ${{ steps.tag.outputs.name }}
           fetch-depth: 0
 
       - uses: actions/setup-java@v4
@@ -138,6 +137,7 @@ jobs:
             gh release upload "$version" dist/* --clobber
           else
             gh release create "$version" dist/* \
+              --target "$GITHUB_SHA" \
               --title "NICU GIR Calculator $version" \
               --notes-file notes.md
           fi
