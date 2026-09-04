@@ -9,6 +9,9 @@ FluidInput fluid({
   double dextrosePercent = 10,
   RateUnit rateUnit = RateUnit.mlPerHour,
   double rateValue = 0,
+  FluidRoute route = FluidRoute.intravenous,
+  double feedIntervalHours = 3,
+  bool? countsTowardGir,
 }) {
   return FluidInput(
     id: id,
@@ -16,6 +19,30 @@ FluidInput fluid({
     dextrosePercent: dextrosePercent,
     rateUnit: rateUnit,
     rateValue: rateValue,
+    route: route,
+    feedIntervalHours: feedIntervalHours,
+    countsTowardGir: countsTowardGir ?? route == FluidRoute.intravenous,
+  );
+}
+
+/// A bolus feed line, e.g. 20 mL of breast milk every 3 hours.
+FluidInput feed({
+  String id = 'feed',
+  String name = 'Breast milk',
+  double carbPercent = 7,
+  double volumeMl = 20,
+  double everyHours = 3,
+  bool countsTowardGir = false,
+}) {
+  return fluid(
+    id: id,
+    name: name,
+    dextrosePercent: carbPercent,
+    rateUnit: RateUnit.mlPerFeed,
+    rateValue: volumeMl,
+    route: FluidRoute.enteral,
+    feedIntervalHours: everyHours,
+    countsTowardGir: countsTowardGir,
   );
 }
 
@@ -214,6 +241,167 @@ void main() {
       expect(parseNumber(''), isNull);
       expect(parseNumber('abc'), isNull);
       expect(parseNumber(null), isNull);
+    });
+  });
+
+  group('feeds', () {
+    test('20 mL every 3 hours is 8 feeds, 160 mL, 6.67 mL/hr', () {
+      expect(
+        toMlPerHour(20, RateUnit.mlPerFeed, 1.5, intervalHours: 3),
+        closeTo(6.667, 0.001),
+      );
+      // 8 feeds x 20 mL = 160 mL/day over 1.5 kg.
+      expect(
+        toMlPerKgPerDay(20, RateUnit.mlPerFeed, 1.5, intervalHours: 3),
+        closeTo(106.667, 0.001),
+      );
+      expect(feed(volumeMl: 20, everyHours: 3).feedsPerDay, 8);
+    });
+
+    test('a zero interval yields zero rather than infinity', () {
+      expect(toMlPerHour(20, RateUnit.mlPerFeed, 1.5, intervalHours: 0), 0);
+      expect(toMlPerKgPerDay(20, RateUnit.mlPerFeed, 1.5, intervalHours: 0), 0);
+      expect(feed(everyHours: 0).feedsPerDay, isNull);
+    });
+
+    test('feeds add to the day\'s fluid but not to the GIR by default', () {
+      // 1.5 kg baby: D10 at 4 mL/hr, plus 20 mL of breast milk q3h.
+      final GirSummary summary = summarise(
+        weightGrams: 1500,
+        fluids: <FluidInput>[
+          fluid(id: 'iv', dextrosePercent: 10, rateValue: 4),
+          feed(),
+        ],
+      );
+
+      // The GIR is the drip alone: 4 x 10 / (6 x 1.5).
+      expect(summary.ivGir, closeTo(4.444, 0.001));
+      expect(summary.totalGir, closeTo(4.444, 0.001));
+      // The feed's contribution is still reported, just not added in.
+      expect(summary.enteralGir, closeTo(5.185, 0.001));
+      expect(summary.countedEnteralGir, 0);
+      expect(summary.countsFeedsInGir, isFalse);
+
+      // Both routes count towards the day's fluid: 4 + 6.667 mL/hr.
+      expect(summary.totalMlPerHour, closeTo(10.667, 0.001));
+      expect(summary.totalMlPerKgPerDay, closeTo(170.667, 0.001));
+      expect(summary.ivMlPerKgPerDay, closeTo(64, 0.001));
+      expect(summary.enteralMlPerKgPerDay, closeTo(106.667, 0.001));
+    });
+
+    test('switching a feed on adds it to the total GIR', () {
+      final GirSummary summary = summarise(
+        weightGrams: 1500,
+        fluids: <FluidInput>[
+          fluid(id: 'iv', dextrosePercent: 10, rateValue: 4),
+          feed(countsTowardGir: true),
+        ],
+      );
+
+      expect(summary.ivGir, closeTo(4.444, 0.001));
+      expect(summary.enteralGir, closeTo(5.185, 0.001));
+      expect(summary.countedEnteralGir, closeTo(5.185, 0.001));
+      expect(summary.totalGir, closeTo(9.630, 0.001));
+      expect(summary.countsFeedsInGir, isTrue);
+      // Counting it does not change the fluid totals.
+      expect(summary.totalMlPerKgPerDay, closeTo(170.667, 0.001));
+    });
+
+    test('an uncounted feed takes no slice of the contribution bar', () {
+      final GirSummary summary = summarise(
+        weightGrams: 1500,
+        fluids: <FluidInput>[
+          fluid(id: 'iv', dextrosePercent: 10, rateValue: 4),
+          feed(),
+        ],
+      );
+
+      expect(summary.fluids[0].girShare, closeTo(1.0, 1e-9));
+      expect(summary.fluids[1].girShare, 0);
+      expect(summary.fluids[1].countsTowardGir, isFalse);
+      expect(summary.fluids[1].feedsPerDay, 8);
+    });
+
+    test('mean dextrose describes the IV fluids, not the feeds', () {
+      final GirSummary summary = summarise(
+        weightGrams: 1500,
+        fluids: <FluidInput>[
+          fluid(id: 'iv', dextrosePercent: 10, rateValue: 4),
+          feed(carbPercent: 7),
+        ],
+      );
+
+      // Diluting by the feed would understate what the drip line carries.
+      expect(summary.meanDextrosePercent, closeTo(10, 1e-9));
+      expect(summary.hasFeeds, isTrue);
+    });
+
+    test('a continuous feed can be entered in mL/hr and still be a feed', () {
+      final GirSummary summary = summarise(
+        weightGrams: 2000,
+        fluids: <FluidInput>[
+          fluid(
+            id: 'ng',
+            dextrosePercent: 7,
+            rateValue: 5,
+            route: FluidRoute.enteral,
+            countsTowardGir: false,
+          ),
+        ],
+      );
+
+      expect(summary.totalGir, 0);
+      expect(summary.enteralGir, closeTo(2.917, 0.001));
+      expect(summary.enteralMlPerKgPerDay, closeTo(60, 0.001));
+      expect(summary.ivMlPerKgPerDay, 0);
+    });
+
+    test('feeds-only totals report fluid with no GIR', () {
+      final GirSummary summary = summarise(
+        weightGrams: 3000,
+        fluids: <FluidInput>[feed(volumeMl: 45, everyHours: 3)],
+      );
+
+      expect(summary.totalGir, 0);
+      expect(summary.band, GirBand.none);
+      // 8 x 45 = 360 mL/day over 3 kg.
+      expect(summary.totalMlPerKgPerDay, closeTo(120, 0.001));
+      expect(summary.meanDextrosePercent, isNull);
+    });
+  });
+
+  group('convertRate', () {
+    test('a feed converted to mL/hr keeps the same daily volume', () {
+      final FluidInput f = feed(volumeMl: 20, everyHours: 3);
+      expect(convertRate(f, RateUnit.mlPerHour, 1.5), closeTo(6.667, 0.001));
+      expect(
+        convertRate(f, RateUnit.mlPerKgPerDay, 1.5),
+        closeTo(106.667, 0.001),
+      );
+    });
+
+    test('mL/hr converted to per-feed uses the line\'s interval', () {
+      final FluidInput f = fluid(
+        rateUnit: RateUnit.mlPerHour,
+        rateValue: 6.6667,
+        route: FluidRoute.enteral,
+        feedIntervalHours: 3,
+      );
+      expect(convertRate(f, RateUnit.mlPerFeed, 1.5), closeTo(20, 0.01));
+    });
+
+    test('converting to the unit already in use changes nothing', () {
+      final FluidInput f = feed(volumeMl: 20);
+      expect(convertRate(f, RateUnit.mlPerFeed, 1.5), 20);
+    });
+  });
+
+  group('feed interval labels', () {
+    test('reads the way it is prescribed', () {
+      expect(feedIntervalLabel(3), 'q3h');
+      expect(feedIntervalLabel(1), 'q1h');
+      expect(feedIntervalLabel(1.5), 'q1.5h');
+      expect(feedIntervalLabel(0), 'q?h');
     });
   });
 }

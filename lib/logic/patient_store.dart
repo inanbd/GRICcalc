@@ -118,13 +118,23 @@ class PatientStore extends ChangeNotifier {
     fluids: <FluidInput>[newFluid(name: 'D10W', dextrosePercent: 10)],
   );
 
-  FluidInput newFluid({String name = '', double dextrosePercent = 10}) {
+  FluidInput newFluid({
+    String name = '',
+    double dextrosePercent = 10,
+    FluidRoute route = FluidRoute.intravenous,
+  }) {
+    final bool isFeed = route == FluidRoute.enteral;
     return FluidInput(
       id: _newId('fluid'),
       name: name,
       dextrosePercent: dextrosePercent,
-      rateUnit: RateUnit.mlPerHour,
+      // Feeds are ordered as a volume every few hours; drips are ordered by rate.
+      rateUnit: isFeed ? RateUnit.mlPerFeed : RateUnit.mlPerHour,
       rateValue: 0,
+      route: route,
+      // A feed's carbohydrate is an estimate, so it stays out of the GIR until
+      // it is deliberately switched on.
+      countsTowardGir: !isFeed,
     );
   }
 
@@ -161,6 +171,9 @@ class PatientStore extends ChangeNotifier {
             dextrosePercent: fluid.dextrosePercent,
             rateUnit: fluid.rateUnit,
             rateValue: fluid.rateValue,
+            route: fluid.route,
+            feedIntervalHours: fluid.feedIntervalHours,
+            countsTowardGir: fluid.countsTowardGir,
           ),
       ],
     );
@@ -216,12 +229,16 @@ class PatientStore extends ChangeNotifier {
   void setName(String name) =>
       updateSelected((Patient p) => p.copyWith(name: name));
 
-  void addFluid({String name = '', double dextrosePercent = 10}) {
+  void addFluid({
+    String name = '',
+    double dextrosePercent = 10,
+    FluidRoute route = FluidRoute.intravenous,
+  }) {
     updateSelected(
       (Patient p) => p.copyWith(
         fluids: <FluidInput>[
           ...p.fluids,
-          newFluid(name: name, dextrosePercent: dextrosePercent),
+          newFluid(name: name, dextrosePercent: dextrosePercent, route: route),
         ],
       ),
     );

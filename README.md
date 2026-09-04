@@ -21,6 +21,10 @@ running total of:
   already named and at the right concentration, leaving only the rate to type.
 - **Duplicate a patient** to carry a set of lines over to the next baby -
   useful for twins and for a unit's standard regimen.
+- **Feeds, entered the way they are prescribed.** Add a feed as a volume every
+  few hours - 20 mL q3h - and it counts towards the day's fluid. Its
+  carbohydrate stays out of the GIR unless you switch it on for that line,
+  because GIR conventionally means intravenous glucose.
 - **Multiple fluid lines.** Each line has its own dextrose concentration and
   rate, and shows what it contributes on its own. A stacked bar breaks the total
   GIR down by line, so it is obvious which infusion is carrying the glucose.
@@ -50,12 +54,30 @@ Worked example: D10W at 4 mL/hr in a 1250 g baby is
 `(4 × 10) ÷ (6 × 1.25) = 5.33 mg/kg/min`, delivering 76.8 mL/kg/day and 9.6 g of
 dextrose a day.
 
-Totals are the sum of every line. Mean dextrose is the volume-weighted
-concentration of everything running.
+Totals are the sum of every line. Mean IV dextrose is the volume-weighted
+concentration of the infusions, feeds excluded, so it can be checked against
+what a peripheral line will take.
 
-The calculator adds up whatever lines you enter. GIR conventionally refers to
-intravenous glucose, so include enteral feeds only if your unit counts them
-toward total glucose delivery.
+### Feeds
+
+A feed ordered as a volume every few hours is averaged over the day:
+
+```
+feeds per day = 24 ÷ interval hours
+mL/hr         = volume per feed ÷ interval hours
+```
+
+So 20 mL q3h is 8 feeds, 160 mL a day, and 6.67 mL/hr. That volume always
+counts towards the day's fluid.
+
+Its carbohydrate is a different matter. The results report **From IV fluids**
+and **From feeds** separately, and only the IV figure is included in the total
+until a feed is switched on with *Count towards GIR*. Enteral glucose is an
+estimate: how much a baby absorbs is not the same as how much goes down the
+tube, and composition varies with fortification and batch. The carbohydrate
+percentage is editable on every line, and the presets are typical values from
+[infantfeeds.com](https://infantfeeds.com/gir-calculator/) rather than product
+data - check them against the label.
 
 ## Running it
 
@@ -73,7 +95,8 @@ flutter test
 Covers the calculation layer (conversions, totals, banding, edge cases such as a
 missing weight), the patient store (auto-save, restoring records, duplicating,
 deleting, and surviving corrupt storage), and the screen itself (per-patient
-records, one-tap switching and adding, rate units, and the safety flags).
+records, one-tap switching and adding, rate units, feeds counted in and out of
+the GIR, and the safety flags).
 
 ## Releases
 

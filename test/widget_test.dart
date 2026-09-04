@@ -188,11 +188,11 @@ void main() {
     await enterInto(tester, 'Weight', '2000');
     await enterInto(tester, 'Rate', '10'); // 10 mL/hr
 
-    // Scope to the segmented control: the totals bar carries the same label.
+    // Scope to the segmented control: other widgets carry similar labels.
     await tester.tap(
       find.descendant(
         of: find.byType(SegmentedButton<RateUnit>),
-        matching: find.text('mL/kg/day'),
+        matching: find.text('mL/kg/d'),
       ),
     );
     await tester.pumpAndSettle();
@@ -273,5 +273,136 @@ void main() {
     expect(find.text('Enter a weight to see totals'), findsOneWidget);
     expect(store.patients.first.name, 'Baby A');
     expect(store.patients.first.weightGrams, 1500);
+  });
+
+  testWidgets('a feed adds to the day\'s fluid but not to the GIR', (
+    WidgetTester tester,
+  ) async {
+    // Wide, so the results panel is on screen rather than behind the sheet.
+    final PatientStore store = await pumpApp(
+      tester,
+      size: const Size(1500, 1600),
+    );
+
+    await enterInto(tester, 'Weight', '1500');
+    await enterInto(tester, 'Rate', '4'); // D10W at 4 mL/hr
+
+    await tester.tap(find.widgetWithText(ActionChip, 'Breast milk'));
+    await tester.pumpAndSettle();
+
+    // A feed line arrives ordered per feed, at q3h, and out of the GIR.
+    final FluidInput fed = store.selected!.fluids.last;
+    expect(fed.route, FluidRoute.enteral);
+    expect(fed.rateUnit, RateUnit.mlPerFeed);
+    expect(fed.feedIntervalHours, 3);
+    expect(fed.countsTowardGir, isFalse);
+    expect(fed.dextrosePercent, 7);
+
+    // 20 mL every 3 hours.
+    final Finder volume = find.ancestor(
+      of: find.text('Volume'),
+      matching: find.byType(TextField),
+    );
+    await tester.enterText(volume, '20');
+    await tester.pumpAndSettle();
+
+    // GIR stays the drip alone; the day's fluid takes in both routes.
+    expect(find.text('4.44'), findsWidgets);
+    expect(find.text('170.7'), findsWidgets);
+    expect(
+      find.textContaining('Feeds are shown but not added in'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('switching a feed on adds it to the GIR', (
+    WidgetTester tester,
+  ) async {
+    // Wide, so the results panel is on screen rather than behind the sheet.
+    final PatientStore store = await pumpApp(
+      tester,
+      size: const Size(1500, 1600),
+    );
+
+    await enterInto(tester, 'Weight', '1500');
+    await enterInto(tester, 'Rate', '4');
+    await tester.tap(find.widgetWithText(ActionChip, 'Breast milk'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.ancestor(of: find.text('Volume'), matching: find.byType(TextField)),
+      '20',
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Count towards GIR'));
+    await tester.pumpAndSettle();
+
+    expect(store.selected!.fluids.last.countsTowardGir, isTrue);
+    // 4.44 from the drip plus 5.19 from the feed.
+    expect(find.text('9.63'), findsWidgets);
+    expect(
+      find.textContaining('Enteral glucose is an estimate'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a feed keeps its volume when switched to mL/hr', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester);
+
+    await enterInto(tester, 'Weight', '1500');
+    await tester.tap(find.widgetWithText(ActionChip, 'Breast milk'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.ancestor(of: find.text('Volume'), matching: find.byType(TextField)),
+      '20',
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byType(SegmentedButton<RateUnit>),
+            matching: find.text('mL/hr'),
+          )
+          .last,
+    );
+    await tester.pumpAndSettle();
+
+    // 20 mL q3h is 6.67 mL/hr, so the daily volume is unchanged.
+    final TextField rate = tester.widget<TextField>(
+      find
+          .ancestor(of: find.text('Rate'), matching: find.byType(TextField))
+          .last,
+    );
+    expect(rate.controller?.text, '6.67');
+  });
+
+  testWidgets('feeds are stored and restored with the patient', (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester);
+
+    await enterInto(tester, 'Weight', '1500');
+    await tester.tap(find.widgetWithText(ActionChip, 'BM + Similac HMF 24'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.ancestor(of: find.text('Volume'), matching: find.byType(TextField)),
+      '25',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Count towards GIR'));
+    await tester.pumpAndSettle();
+
+    final PatientStore reopened = PatientStore(writeDelay: Duration.zero);
+    await reopened.load();
+    final FluidInput restored = reopened.selected!.fluids.last;
+    expect(restored.name, 'BM + Similac HMF 24');
+    expect(restored.route, FluidRoute.enteral);
+    expect(restored.dextrosePercent, 8.3);
+    expect(restored.rateValue, 25);
+    expect(restored.feedIntervalHours, 3);
+    expect(restored.countsTowardGir, isTrue);
   });
 }

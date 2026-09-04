@@ -261,6 +261,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           onAddPreset: (FluidPreset preset) => _store.addFluid(
             name: preset.name,
             dextrosePercent: preset.dextrosePercent,
+            route: preset.route,
           ),
           onAddCustom: () => _store.addFluid(),
         ),

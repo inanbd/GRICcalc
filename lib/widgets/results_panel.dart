@@ -157,8 +157,89 @@ class _TotalGir extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+            if (summary.hasFeeds) ...<Widget>[
+              const Divider(height: 24),
+              _SplitRow(
+                label: 'From IV fluids',
+                value: fixed(summary.ivGir, 2),
+                counted: true,
+              ),
+              _SplitRow(
+                label: 'From feeds',
+                value: fixed(summary.enteralGir, 2),
+                counted: summary.countsFeedsInGir,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                summary.countsFeedsInGir
+                    ? 'Feeds are included above. Enteral glucose is an '
+                          'estimate: check the carbohydrate against the product.'
+                    : 'Feeds are shown but not added in, the usual convention. '
+                          'Switch a feed on to include it.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// One route's contribution to the GIR, dimmed when it is not being counted.
+class _SplitRow extends StatelessWidget {
+  const _SplitRow({
+    required this.label,
+    required this.value,
+    required this.counted,
+  });
+
+  final String label;
+  final String value;
+  final bool counted;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final Color color = counted
+        ? theme.colorScheme.onSurface
+        : theme.colorScheme.onSurfaceVariant;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: <Widget>[
+          Icon(
+            counted ? Icons.add_circle_outline : Icons.remove_circle_outline,
+            size: 16,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyMedium?.copyWith(color: color),
+            ),
+          ),
+          Text(
+            value,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w600,
+              fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
+            ),
+          ),
+          const SizedBox(width: 4),
+          Text(
+            'mg/kg/min',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -281,6 +362,18 @@ class _TotalsTable extends StatelessWidget {
               unit: 'mL/kg/day',
               emphasise: true,
             ),
+            if (summary.hasFeeds) ...<Widget>[
+              _TotalRow(
+                label: '  of which IV',
+                value: trimmed(summary.ivMlPerKgPerDay, 1),
+                unit: 'mL/kg/day',
+              ),
+              _TotalRow(
+                label: '  of which feeds',
+                value: trimmed(summary.enteralMlPerKgPerDay, 1),
+                unit: 'mL/kg/day',
+              ),
+            ],
             _TotalRow(
               label: 'Total volume',
               value: trimmed(summary.totalMlPerHour * 24, 1),
@@ -292,7 +385,7 @@ class _TotalsTable extends StatelessWidget {
               unit: 'g/day',
             ),
             _TotalRow(
-              label: 'Mean dextrose',
+              label: summary.hasFeeds ? 'Mean IV dextrose' : 'Mean dextrose',
               value: meanDextrose == null ? '--' : trimmed(meanDextrose, 1),
               unit: '%',
             ),

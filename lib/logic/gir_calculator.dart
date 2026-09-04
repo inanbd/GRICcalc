@@ -39,6 +39,8 @@ class FluidResult {
     required this.gir,
     required this.glucoseGramsPerDay,
     required this.girShare,
+    required this.countsTowardGir,
+    required this.feedsPerDay,
   });
 
   final FluidInput fluid;
@@ -57,6 +59,15 @@ class FluidResult {
 
   /// This line's share of the total GIR, 0.0-1.0.
   final double girShare;
+
+  /// Whether [gir] was added to [GirSummary.totalGir]. A feed only counts when
+  /// the clinician opts it in.
+  final bool countsTowardGir;
+
+  /// Feeds in 24 hours, for a line ordered as a volume every few hours.
+  final double? feedsPerDay;
+
+  bool get isFeed => fluid.isFeed;
 }
 
 /// Every total the calculator reports, for one weight and set of fluids.
@@ -67,8 +78,13 @@ class GirSummary {
     required this.isValid,
     required this.fluids,
     required this.totalGir,
+    required this.ivGir,
+    required this.enteralGir,
+    required this.countedEnteralGir,
     required this.totalMlPerHour,
     required this.totalMlPerKgPerDay,
+    required this.ivMlPerKgPerDay,
+    required this.enteralMlPerKgPerDay,
     required this.totalGlucoseGramsPerDay,
     required this.meanDextrosePercent,
   });
@@ -79,8 +95,13 @@ class GirSummary {
       isValid = false,
       fluids = const <FluidResult>[],
       totalGir = 0,
+      ivGir = 0,
+      enteralGir = 0,
+      countedEnteralGir = 0,
       totalMlPerHour = 0,
       totalMlPerKgPerDay = 0,
+      ivMlPerKgPerDay = 0,
+      enteralMlPerKgPerDay = 0,
       totalGlucoseGramsPerDay = 0,
       meanDextrosePercent = null;
 
@@ -91,21 +112,48 @@ class GirSummary {
 
   final List<FluidResult> fluids;
 
-  /// Combined glucose infusion rate, in mg/kg/min.
+  /// The headline figure, in mg/kg/min: [ivGir] plus [countedEnteralGir].
   final double totalGir;
 
-  /// Combined pump rate, in mL/hr.
+  /// Glucose from intravenous lines alone, in mg/kg/min. This is what "GIR"
+  /// means without further qualification.
+  final double ivGir;
+
+  /// Carbohydrate delivered by every feed, in mg/kg/min, whether or not it is
+  /// being counted. An estimate: feed composition varies.
+  final double enteralGir;
+
+  /// The part of [enteralGir] opted in to the total.
+  final double countedEnteralGir;
+
+  /// Combined rate of everything, in mL/hr. A feed contributes its average -
+  /// 20 mL every 3 hours is 6.67 mL/hr.
   final double totalMlPerHour;
 
-  /// Combined daily volume, in mL/kg/day.
+  /// Every route's volume, in mL/kg/day.
   final double totalMlPerKgPerDay;
+
+  /// Intravenous volume alone, in mL/kg/day.
+  final double ivMlPerKgPerDay;
+
+  /// Fed volume alone, in mL/kg/day.
+  final double enteralMlPerKgPerDay;
 
   /// Combined dextrose delivered over 24 hours, in grams.
   final double totalGlucoseGramsPerDay;
 
-  /// Volume-weighted dextrose concentration of everything running, as a
-  /// percentage. Null when no volume is running.
+  /// Volume-weighted dextrose concentration of the intravenous lines, as a
+  /// percentage. Null when nothing is infusing. Feeds are left out: the figure
+  /// exists to be checked against what a peripheral line will take.
   final double? meanDextrosePercent;
+
+  /// Whether any feed is on the list.
+  bool get hasFeeds => fluids.any((FluidResult r) => r.isFeed);
+
+  /// Whether a feed's carbohydrate is being counted in [totalGir], which makes
+  /// the headline figure an estimate rather than a calculation.
+  bool get countsFeedsInGir =>
+      fluids.any((FluidResult r) => r.isFeed && r.countsTowardGir && r.gir > 0);
 
   GirBand get band => girBandFor(totalGir);
 
@@ -132,20 +180,53 @@ GirBand girBandFor(double gir) {
   return GirBand.high;
 }
 
-/// Converts a rate expressed in [unit] into mL/hr for a baby of [weightKg].
-double toMlPerHour(double value, RateUnit unit, double weightKg) {
+/// Converts a rate into mL/hr for a baby of [weightKg].
+///
+/// A bolus feed is averaged over the day: 20 mL every 3 hours is 8 feeds,
+/// 160 mL, and so 6.67 mL/hr.
+double toMlPerHour(
+  double value,
+  RateUnit unit,
+  double weightKg, {
+  double intervalHours = 3,
+}) {
   return switch (unit) {
     RateUnit.mlPerHour => value,
     RateUnit.mlPerKgPerDay => value * weightKg / 24,
+    RateUnit.mlPerFeed => intervalHours > 0 ? value / intervalHours : 0,
   };
 }
 
-/// Converts a rate expressed in [unit] into mL/kg/day for a baby of [weightKg].
-double toMlPerKgPerDay(double value, RateUnit unit, double weightKg) {
+/// Converts a rate into mL/kg/day for a baby of [weightKg].
+double toMlPerKgPerDay(
+  double value,
+  RateUnit unit,
+  double weightKg, {
+  double intervalHours = 3,
+}) {
   if (weightKg <= 0) return 0;
   return switch (unit) {
     RateUnit.mlPerHour => value * 24 / weightKg,
     RateUnit.mlPerKgPerDay => value,
+    RateUnit.mlPerFeed =>
+      intervalHours > 0 ? value * (24 / intervalHours) / weightKg : 0,
+  };
+}
+
+/// Restates [fluid]'s rate in [unit], so switching units on a line leaves it
+/// running at the same speed.
+double convertRate(FluidInput fluid, RateUnit unit, double weightKg) {
+  if (unit == fluid.rateUnit) return fluid.rateValue;
+  final double mlPerHour = toMlPerHour(
+    fluid.rateValue,
+    fluid.rateUnit,
+    weightKg,
+    intervalHours: fluid.feedIntervalHours,
+  );
+  return switch (unit) {
+    RateUnit.mlPerHour => mlPerHour,
+    RateUnit.mlPerKgPerDay => weightKg > 0 ? mlPerHour * 24 / weightKg : 0,
+    RateUnit.mlPerFeed => mlPerHour * fluid.feedIntervalHours,
   };
 }
 
@@ -178,17 +259,33 @@ GirSummary summarise({
 
   final double weightKg = weightGrams / 1000;
 
-  double totalGir = 0;
+  double ivGir = 0;
+  double enteralGir = 0;
+  double countedEnteralGir = 0;
   double totalMlPerHour = 0;
+  double ivMlPerHour = 0;
+  double enteralMlPerHour = 0;
   double totalGlucoseGramsPerDay = 0;
+  double ivVolumePerDay = 0;
+  double ivGlucoseGramsPerDay = 0;
 
   final List<_Partial> partials = <_Partial>[];
   for (final FluidInput fluid in fluids) {
     final double mlPerHour = _sanitise(
-      toMlPerHour(fluid.rateValue, fluid.rateUnit, weightKg),
+      toMlPerHour(
+        fluid.rateValue,
+        fluid.rateUnit,
+        weightKg,
+        intervalHours: fluid.feedIntervalHours,
+      ),
     );
     final double mlPerKgPerDay = _sanitise(
-      toMlPerKgPerDay(fluid.rateValue, fluid.rateUnit, weightKg),
+      toMlPerKgPerDay(
+        fluid.rateValue,
+        fluid.rateUnit,
+        weightKg,
+        intervalHours: fluid.feedIntervalHours,
+      ),
     );
     final double gir = _sanitise(
       girFor(
@@ -201,13 +298,34 @@ GirSummary summarise({
       mlPerHour * 24 * fluid.dextrosePercent / 100,
     );
 
-    totalGir += gir;
+    // Every route adds to the day's fluid; only opted-in carbohydrate adds to
+    // the GIR, which is the whole point of separating the two.
     totalMlPerHour += mlPerHour;
     totalGlucoseGramsPerDay += glucoseGramsPerDay;
+    if (fluid.isFeed) {
+      enteralGir += gir;
+      enteralMlPerHour += mlPerHour;
+      if (fluid.countsTowardGir) countedEnteralGir += gir;
+    } else {
+      ivGir += gir;
+      ivMlPerHour += mlPerHour;
+      ivVolumePerDay += mlPerHour * 24;
+      ivGlucoseGramsPerDay += glucoseGramsPerDay;
+    }
 
     partials.add(
       _Partial(fluid, mlPerHour, mlPerKgPerDay, gir, glucoseGramsPerDay),
     );
+  }
+
+  final double totalGir = ivGir + countedEnteralGir;
+
+  /// A line's share of the bar is measured against what is actually counted,
+  /// so an uncounted feed shows no slice rather than a misleading one.
+  double shareOf(_Partial p) {
+    if (totalGir <= 0) return 0;
+    final bool counted = !p.fluid.isFeed || p.fluid.countsTowardGir;
+    return counted ? p.gir / totalGir : 0;
   }
 
   final List<FluidResult> results = partials
@@ -218,23 +336,28 @@ GirSummary summarise({
           mlPerKgPerDay: p.mlPerKgPerDay,
           gir: p.gir,
           glucoseGramsPerDay: p.glucoseGramsPerDay,
-          girShare: totalGir > 0 ? p.gir / totalGir : 0,
+          girShare: shareOf(p),
+          countsTowardGir: !p.fluid.isFeed || p.fluid.countsTowardGir,
+          feedsPerDay: p.fluid.feedsPerDay,
         ),
       )
       .toList(growable: false);
-
-  final double totalMlPerDay = totalMlPerHour * 24;
 
   return GirSummary(
     weightKg: weightKg,
     isValid: true,
     fluids: results,
     totalGir: totalGir,
+    ivGir: ivGir,
+    enteralGir: enteralGir,
+    countedEnteralGir: countedEnteralGir,
     totalMlPerHour: totalMlPerHour,
-    totalMlPerKgPerDay: _sanitise(totalMlPerDay / weightKg),
+    totalMlPerKgPerDay: _sanitise(totalMlPerHour * 24 / weightKg),
+    ivMlPerKgPerDay: _sanitise(ivMlPerHour * 24 / weightKg),
+    enteralMlPerKgPerDay: _sanitise(enteralMlPerHour * 24 / weightKg),
     totalGlucoseGramsPerDay: totalGlucoseGramsPerDay,
-    meanDextrosePercent: totalMlPerDay > 0
-        ? _sanitise(totalGlucoseGramsPerDay / totalMlPerDay * 100)
+    meanDextrosePercent: ivVolumePerDay > 0
+        ? _sanitise(ivGlucoseGramsPerDay / ivVolumePerDay * 100)
         : null,
   );
 }

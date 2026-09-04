@@ -62,26 +62,12 @@ class _FluidCardState extends State<FluidCard> {
   }
 
   /// Switches the rate unit, carrying the equivalent rate across so the line
-  /// keeps running at the same speed.
+  /// keeps delivering the same amount.
   void _changeUnit(RateUnit unit) {
     if (unit == widget.fluid.rateUnit) return;
-
-    double converted = widget.fluid.rateValue;
-    if (widget.weightKg > 0) {
-      converted = switch (unit) {
-        RateUnit.mlPerHour => toMlPerHour(
-          widget.fluid.rateValue,
-          widget.fluid.rateUnit,
-          widget.weightKg,
-        ),
-        RateUnit.mlPerKgPerDay => toMlPerKgPerDay(
-          widget.fluid.rateValue,
-          widget.fluid.rateUnit,
-          widget.weightKg,
-        ),
-      };
-    }
-
+    final double converted = widget.weightKg > 0
+        ? convertRate(widget.fluid, unit, widget.weightKg)
+        : widget.fluid.rateValue;
     final double rounded = double.parse(converted.toStringAsFixed(2));
     _rate.text = trimmed(rounded, 2);
     widget.onChanged(widget.fluid.copyWith(rateUnit: unit, rateValue: rounded));
@@ -109,6 +95,16 @@ class _FluidCardState extends State<FluidCard> {
                   ),
                 ),
                 const SizedBox(width: 12),
+                if (widget.fluid.isFeed) ...<Widget>[
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: Icon(
+                      Icons.local_drink_outlined,
+                      size: 18,
+                      color: accent,
+                    ),
+                  ),
+                ],
                 Expanded(
                   child: TextField(
                     controller: _name,
@@ -139,7 +135,7 @@ class _FluidCardState extends State<FluidCard> {
                   Expanded(
                     child: _NumberField(
                       controller: _dextrose,
-                      label: 'Dextrose',
+                      label: widget.fluid.isFeed ? 'Carb' : 'Dextrose',
                       suffix: '%',
                       onChanged: (double? value) => widget.onChanged(
                         widget.fluid.copyWith(dextrosePercent: value ?? 0),
@@ -150,44 +146,150 @@ class _FluidCardState extends State<FluidCard> {
                   Expanded(
                     child: _NumberField(
                       controller: _rate,
-                      label: 'Rate',
-                      suffix: widget.fluid.rateUnit.label,
+                      label: widget.fluid.rateUnit == RateUnit.mlPerFeed
+                          ? 'Volume'
+                          : 'Rate',
+                      suffix: widget.fluid.rateUnit == RateUnit.mlPerFeed
+                          ? 'mL'
+                          : widget.fluid.rateUnit.label,
                       onChanged: (double? value) => widget.onChanged(
                         widget.fluid.copyWith(rateValue: value ?? 0),
                       ),
                     ),
                   ),
+                  if (widget.fluid.rateUnit == RateUnit.mlPerFeed) ...<Widget>[
+                    const SizedBox(width: 12),
+                    _IntervalPicker(
+                      hours: widget.fluid.feedIntervalHours,
+                      onChanged: (double hours) => widget.onChanged(
+                        widget.fluid.copyWith(feedIntervalHours: hours),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
             const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: SegmentedButton<RateUnit>(
-                segments: const <ButtonSegment<RateUnit>>[
-                  ButtonSegment<RateUnit>(
-                    value: RateUnit.mlPerHour,
-                    label: Text('mL/hr'),
+            Row(
+              children: <Widget>[
+                Expanded(
+                  child: SegmentedButton<RateUnit>(
+                    segments: <ButtonSegment<RateUnit>>[
+                      if (widget.fluid.isFeed)
+                        const ButtonSegment<RateUnit>(
+                          value: RateUnit.mlPerFeed,
+                          label: Text('Per feed'),
+                        ),
+                      const ButtonSegment<RateUnit>(
+                        value: RateUnit.mlPerHour,
+                        label: Text('mL/hr'),
+                      ),
+                      const ButtonSegment<RateUnit>(
+                        value: RateUnit.mlPerKgPerDay,
+                        label: Text('mL/kg/d'),
+                      ),
+                    ],
+                    selected: <RateUnit>{widget.fluid.rateUnit},
+                    showSelectedIcon: false,
+                    style: const ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onSelectionChanged: (Set<RateUnit> selection) =>
+                        _changeUnit(selection.first),
                   ),
-                  ButtonSegment<RateUnit>(
-                    value: RateUnit.mlPerKgPerDay,
-                    label: Text('mL/kg/day'),
-                  ),
-                ],
-                selected: <RateUnit>{widget.fluid.rateUnit},
-                showSelectedIcon: false,
-                style: const ButtonStyle(
-                  visualDensity: VisualDensity.compact,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                onSelectionChanged: (Set<RateUnit> selection) =>
-                    _changeUnit(selection.first),
-              ),
+                const SizedBox(width: 8),
+              ],
             ),
+            if (widget.fluid.isFeed) ...<Widget>[
+              const SizedBox(height: 8),
+              _CountInGirSwitch(
+                value: widget.fluid.countsTowardGir,
+                onChanged: (bool value) => widget.onChanged(
+                  widget.fluid.copyWith(countsTowardGir: value),
+                ),
+              ),
+            ],
             if (widget.result != null) ...<Widget>[
               const SizedBox(height: 12),
               _LineReadout(result: widget.result!, accent: accent),
             ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// How often a bolus feed is given. One tap opens the list, one more picks it.
+class _IntervalPicker extends StatelessWidget {
+  const _IntervalPicker({required this.hours, required this.onChanged});
+
+  final double hours;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    // A stored interval that is not on the list still has to be selectable.
+    final List<double> options = <double>{
+      ...feedIntervals,
+      if (hours > 0) hours,
+    }.toList()..sort();
+
+    return SizedBox(
+      width: 132,
+      child: DropdownButtonFormField<double>(
+        initialValue: options.contains(hours) ? hours : null,
+        isDense: true,
+        // Let the value shrink to the box rather than overflow it.
+        isExpanded: true,
+        decoration: const InputDecoration(labelText: 'Every'),
+        items: <DropdownMenuItem<double>>[
+          for (final double option in options)
+            DropdownMenuItem<double>(
+              value: option,
+              child: Text(feedIntervalLabel(option)),
+            ),
+        ],
+        onChanged: (double? value) {
+          if (value != null) onChanged(value);
+        },
+      ),
+    );
+  }
+}
+
+/// Opts a feed's carbohydrate into the GIR total. Off by default: GIR normally
+/// means intravenous glucose, and a feed's contribution is an estimate.
+class _CountInGirSwitch extends StatelessWidget {
+  const _CountInGirSwitch({required this.value, required this.onChanged});
+
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return InkWell(
+      onTap: () => onChanged(!value),
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: <Widget>[
+            Switch(
+              value: value,
+              onChanged: onChanged,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Count towards GIR',
+                style: theme.textTheme.bodyMedium,
+              ),
+            ),
           ],
         ),
       ),
@@ -218,17 +320,31 @@ class _LineReadout extends StatelessWidget {
         runSpacing: 6,
         children: <Widget>[
           _Stat(
-            label: 'GIR',
+            label: result.countsTowardGir ? 'GIR' : 'GIR (not counted)',
             value: '${fixed(result.gir, 2)} mg/kg/min',
             emphasise: true,
+            muted: !result.countsTowardGir,
           ),
-          // Show the equivalent in the unit that was not typed in.
-          if (unit == RateUnit.mlPerKgPerDay)
-            _Stat(label: 'Rate', value: '${trimmed(result.mlPerHour, 2)} mL/hr')
-          else
+          if (result.feedsPerDay != null)
+            _Stat(
+              label: 'Feeds',
+              value: '${trimmed(result.feedsPerDay!, 1)}/day',
+            ),
+          // Show the equivalent in a unit that was not typed in.
+          if (unit == RateUnit.mlPerHour)
             _Stat(
               label: 'Daily',
               value: '${trimmed(result.mlPerKgPerDay, 1)} mL/kg/day',
+            )
+          else
+            _Stat(
+              label: 'Rate',
+              value: '${trimmed(result.mlPerHour, 2)} mL/hr',
+            ),
+          if (unit == RateUnit.mlPerFeed)
+            _Stat(
+              label: 'Volume',
+              value: '${trimmed(result.mlPerHour * 24, 1)} mL/day',
             ),
           _Stat(
             label: 'Glucose',
@@ -245,11 +361,15 @@ class _Stat extends StatelessWidget {
     required this.label,
     required this.value,
     this.emphasise = false,
+    this.muted = false,
   });
 
   final String label;
   final String value;
   final bool emphasise;
+
+  /// Dims a figure that is displayed but excluded from the totals.
+  final bool muted;
 
   @override
   Widget build(BuildContext context) {
@@ -269,6 +389,7 @@ class _Stat extends StatelessWidget {
           value,
           style: theme.textTheme.bodyMedium?.copyWith(
             fontWeight: emphasise ? FontWeight.w700 : FontWeight.w500,
+            color: muted ? theme.colorScheme.onSurfaceVariant : null,
             fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
           ),
         ),
