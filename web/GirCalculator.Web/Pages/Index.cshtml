@@ -1,0 +1,76 @@
+@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Calculator";
+}
+
+<h1 class="page-title">Glucose Infusion Rate</h1>
+<p class="lede">
+    Enter the baby's weight in grams, add a line for each fluid or feed, and the
+    totals update as you type. Everything stays in this browser.
+</p>
+
+<div class="calc-grid">
+    <div>
+        <section class="card" aria-label="Patients">
+            <div class="patient-strip" id="patient-strip"></div>
+        </section>
+
+        <section class="card mt-1">
+            <div class="field-row">
+                <div class="field">
+                    <label for="patient-name">Patient</label>
+                    <input type="text" id="patient-name" autocomplete="off"
+                           placeholder="Patient 1" />
+                </div>
+                <div class="field">
+                    <label for="patient-weight">Weight (g)</label>
+                    <input type="text" id="patient-weight" inputmode="decimal"
+                           autocomplete="off" placeholder="e.g. 1250" />
+                    <span class="note" id="weight-hint">Dosing weight in grams</span>
+                </div>
+            </div>
+            <div class="chip-row">
+                <button type="button" class="btn btn-sm" id="duplicate-patient">Duplicate</button>
+                <button type="button" class="btn btn-sm" id="clear-patient">Clear</button>
+                <button type="button" class="btn btn-sm" id="delete-patient">Delete</button>
+            </div>
+        </section>
+
+        <section class="mt-2" aria-label="Lines">
+            <div class="row-baseline">
+                <h2 class="card-title m-0">Fluids and feeds</h2>
+                <span class="note push-right" id="line-count"></span>
+            </div>
+            <div id="fluid-list" class="mt-xs"></div>
+        </section>
+
+        <section class="quick-add mt-2">
+            <h2 class="card-title">Add a fluid</h2>
+            <div class="chip-row" id="add-fluids"></div>
+            <div class="chip-row mt-sm">
+                <button type="button" class="chip" id="add-custom">
+                    <span class="plus">+</span>Custom
+                </button>
+            </div>
+
+            <h2 class="card-title mt-2">Add a feed</h2>
+            <p class="note">
+                Counts towards the day's fluid. Carbohydrate is left out of the
+                GIR unless you switch it on.
+            </p>
+            <div class="chip-row" id="add-feeds"></div>
+        </section>
+    </div>
+
+    <div class="results-col">
+        <p class="print-only"><strong>Patient:</strong> <span id="print-name"></span></p>
+        <div id="results"></div>
+    </div>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+@section Scripts {
+    <script type="module" src="~/js/main.js" asp-append-version="true"></script>
+}

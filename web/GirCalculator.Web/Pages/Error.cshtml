@@ -1,0 +1,17 @@
+@page
+@model ErrorModel
+@{
+    ViewData["Title"] = "Error";
+}
+
+<h1 class="page-title">Something went wrong</h1>
+<p class="lede">
+    Sorry - that page could not be shown. The
+    <a href="/">calculator</a> is unaffected: it runs in your browser, and your
+    records are still here.
+</p>
+
+@if (Model.ShowRequestId)
+{
+    <p class="note">Request ID: <code>@Model.RequestId</code></p>
+}

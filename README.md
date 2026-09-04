@@ -114,6 +114,14 @@ gets acted on:
   cursor placement, appearance, rate units, feeds counted in and out of the
   GIR, and the safety flags).
 
+## Website
+
+An ASP.NET Core Razor Pages version of the same calculator lives in
+[`web/`](web/), with the same pages plus a contact form that emails the site
+owner. The calculator there is client-side JavaScript ported from
+`lib/logic/gir_calculator.dart`, so the site and the app agree figure for
+figure; nothing typed into it reaches the server. See [web/README.md](web/README.md).
+
 ## Releases
 
 Tagging publishes a GitHub Release with the Android APKs attached:

@@ -1,0 +1,6 @@
+{
+  "name": "griccalc-web-assets",
+  "private": true,
+  "type": "module",
+  "//": "Not an npm project. This file exists so Node treats the browser ES modules under wwwroot/js as modules when the tests import them."
+}

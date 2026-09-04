@@ -1,0 +1,73 @@
+@page
+@model ContactModel
+@{
+    ViewData["Title"] = "Contact";
+}
+
+<h1 class="page-title">Contact</h1>
+<p class="lede">
+    Questions, corrections, or a figure that disagrees with your own
+    calculation - all of it is welcome. A discrepancy report is the most useful
+    message this form can carry.
+</p>
+
+@if (Model.Sent)
+{
+    <div class="alert alert-success" role="status">
+        <strong>Thank you - your message has been sent.</strong>
+        A reply will go to the address you gave.
+    </div>
+}
+
+@if (!Model.CanSend)
+{
+    <div class="alert alert-info" role="status">
+        The contact form is not configured on this deployment yet, so messages
+        cannot be sent. Set the <code>Email</code> section in
+        <code>appsettings.json</code> to enable it.
+    </div>
+}
+else
+{
+    <div asp-validation-summary="ModelOnly" class="alert alert-error" role="alert"></div>
+
+    <form method="post" class="card form-narrow" novalidate>
+        <div class="field-row">
+            <div class="field">
+                <label asp-for="Input.Name"></label>
+                <input asp-for="Input.Name" autocomplete="name" />
+                <span asp-validation-for="Input.Name" class="field-error"></span>
+            </div>
+            <div class="field">
+                <label asp-for="Input.Email"></label>
+                <input asp-for="Input.Email" type="email" autocomplete="email" />
+                <span asp-validation-for="Input.Email" class="field-error"></span>
+            </div>
+        </div>
+
+        <div class="field">
+            <label asp-for="Input.Subject"></label>
+            <input asp-for="Input.Subject" autocomplete="off" />
+            <span asp-validation-for="Input.Subject" class="field-error"></span>
+        </div>
+
+        <div class="field">
+            <label asp-for="Input.Message"></label>
+            <textarea asp-for="Input.Message" rows="8"></textarea>
+            <span asp-validation-for="Input.Message" class="field-error"></span>
+        </div>
+
+        <div class="honeypot" aria-hidden="true">
+            <label for="Input_Website">Leave this field empty</label>
+            <input asp-for="Input.Website" id="Input_Website" tabindex="-1" autocomplete="off" />
+        </div>
+
+        <button type="submit" class="btn btn-primary">Send message</button>
+
+        <p class="note mt-1">
+            This form is the one place on the site that sends anything to the
+            server. It carries only what you type above - never anything from
+            the calculator.
+        </p>
+    </form>
+}

@@ -1,0 +1,78 @@
+@using Microsoft.Extensions.Options
+@inject IOptions<SiteOptions> Site
+@{
+    SiteOptions site = Site.Value;
+    string current = ViewContext.RouteData.Values["page"]?.ToString() ?? string.Empty;
+    string NavClass(string page) => current.Equals(page, StringComparison.OrdinalIgnoreCase)
+        ? "nav-link is-current"
+        : "nav-link";
+}
+<!DOCTYPE html>
+<html lang="en" data-theme="system">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] - NICU GIR Calculator</title>
+    <meta name="description" content="Glucose infusion rate and fluid totals for neonates. Runs entirely in your browser." />
+    <link rel="icon" href="~/favicon.png" type="image/png" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <script src="~/js/theme.js" asp-append-version="true"></script>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+
+<header class="site-header">
+    <div class="wrap header-inner">
+        <a class="brand" href="/">
+            <span class="brand-mark" aria-hidden="true">GIR</span>
+            <span class="brand-text">NICU GIR Calculator</span>
+        </a>
+
+        <nav class="site-nav" aria-label="Main">
+            <a class="@NavClass("/Index")" href="/">Calculator</a>
+            <a class="@NavClass("/HowItWorks")" href="/HowItWorks">How it works</a>
+            <a class="@NavClass("/Disclaimer")" href="/Disclaimer">Disclaimer</a>
+            <a class="@NavClass("/Contact")" href="/Contact">Contact</a>
+        </nav>
+
+        <div class="header-actions">
+            @if (site.HasPlayStoreUrl)
+            {
+                <a class="btn btn-play" href="@site.PlayStoreUrl" rel="noopener noreferrer" target="_blank">
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                        <path fill="currentColor" d="M3.6 1.8a1 1 0 0 0-.6.9v18.6a1 1 0 0 0 .6.9l10-10.2-10-10.2Zm11.1 9.1 2.7-2.8 3.6 2c.7.4.7 1.4 0 1.8l-3.6 2-2.7-2.8 0-.2Zm-1 1 -9.4 9.6 11.2-6.2-1.8-3.4Zm0-2.2 1.8-3.4L4.3 0.1l9.4 9.6Z"/>
+                    </svg>
+                    <span>Get it on Google Play</span>
+                </a>
+            }
+            <button type="button" class="btn btn-icon" id="theme-toggle"
+                    aria-label="Appearance" title="Appearance">
+                <span id="theme-icon" aria-hidden="true">A</span>
+            </button>
+        </div>
+    </div>
+</header>
+
+<main id="main" class="wrap">
+    @RenderBody()
+</main>
+
+<footer class="site-footer">
+    <div class="wrap footer-inner">
+        <p>
+            A calculation aid only. The final decision rests with the treating
+            physician. <a href="/Disclaimer">Read the disclaimer</a>.
+        </p>
+        <p class="footer-meta">
+            Everything you type stays in this browser.
+            @if (site.HasGitHubUrl)
+            {
+                <a href="@site.GitHubUrl" rel="noopener noreferrer" target="_blank">Source and Android APKs</a>
+            }
+        </p>
+    </div>
+</footer>
+
+@await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

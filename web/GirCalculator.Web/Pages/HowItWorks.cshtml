@@ -1,0 +1,85 @@
+@page
+@model HowItWorksModel
+@{
+    ViewData["Title"] = "How it works";
+}
+
+<h1 class="page-title">How this is calculated</h1>
+<p class="lede">
+    Every figure the calculator reports can be re-derived from what follows. A
+    number nobody can check is a number nobody should act on.
+</p>
+
+<div class="prose">
+    <h2>Glucose infusion rate</h2>
+    <code class="formula">GIR = (rate mL/hr × carbohydrate %) ÷ (6 × weight kg)</code>
+    <p class="note">
+        A solution labelled "%" carries that many grams per 100 mL. Converting
+        grams to milligrams and hours to minutes is where the 6 comes from:
+        <code>mL/hr × (% ÷ 100) × 1000 ÷ 60 ÷ kg</code>.
+    </p>
+
+    <h3>Worked example — IV</h3>
+    <code class="formula">D10W at 4 mL/hr, 1250 g baby
+(4 × 10) ÷ (6 × 1.25) = 5.33 mg/kg/min</code>
+    <p class="note">
+        The same line delivers 76.8 mL/kg/day and 9.6 g of dextrose a day.
+    </p>
+
+    <h2>Feeds — volume</h2>
+    <code class="formula">feeds per day = 24 ÷ interval hours
+mL/day        = volume per feed × feeds per day
+mL/hr         = volume per feed ÷ interval hours</code>
+    <p class="note">
+        A bolus feed is averaged across the day so it can be added to
+        continuous infusions.
+    </p>
+
+    <h3>Worked example — feed</h3>
+    <code class="formula">20 mL q3h, 1500 g baby, 7% carbohydrate
+24 ÷ 3 = 8 feeds/day
+20 × 8 = 160 mL/day = 6.67 mL/hr
+(6.67 × 7) ÷ (6 × 1.5) = 5.19 mg/kg/min</code>
+    <p class="note">
+        That 160 mL always counts towards the day's fluid:
+        160 ÷ 1.5 = 106.7 mL/kg/day.
+    </p>
+
+    <h2>Feeds — glucose</h2>
+    <code class="formula">Total GIR = IV GIR + feeds switched on
+Enteral GIR is shown either way</code>
+    <p class="note">
+        GIR conventionally means intravenous glucose, so a feed stays out of
+        the total until you switch it on for that line. Enteral GIR is an
+        estimate: carbohydrate content varies with fortification and batch, and
+        what is absorbed is not what goes down the tube.
+    </p>
+
+    <h2>Daily fluid</h2>
+    <code class="formula">mL/kg/day = (rate mL/hr × 24) ÷ weight kg
+mL/hr     = (mL/kg/day × weight kg) ÷ 24</code>
+    <p class="note">Every route counts towards the day's fluid, feeds included.</p>
+
+    <h2>Totals</h2>
+    <code class="formula">Total rate       = sum of every line's mL/hr
+Carbohydrate     = sum of every line's g/day
+Mean IV dextrose = IV grams ÷ IV volume × 100</code>
+    <p class="note">
+        Mean dextrose covers the infusions only. Its purpose is to be checked
+        against what a peripheral line will take, and a feed would only dilute
+        it.
+    </p>
+
+    <h2>Reference bands</h2>
+    <p>
+        Below 4 mg/kg/min is under the usual maintenance range; 4–8 is the
+        usual range; 8–12 is elevated, and common when treating hypoglycaemia;
+        12 and above warrants review. A single infusion above 12.5% dextrose is
+        flagged because that is roughly what a peripheral cannula tolerates —
+        feeds never raise that flag, since milk does not go through a cannula.
+    </p>
+    <p class="note">
+        These are common conventions rather than rules. Your unit's protocol
+        and the baby in front of you take precedence.
+    </p>
+</div>

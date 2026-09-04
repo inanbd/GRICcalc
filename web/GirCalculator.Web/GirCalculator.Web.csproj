@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>GirCalculator.Web</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MailKit" Version="4.17.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- So the tests can reach the message-building helpers without making
+         them part of the public surface. -->
+    <InternalsVisibleTo Include="GirCalculator.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Browser assets, not a Node project; see wwwroot/js. -->
+    <Content Remove="package.json" />
+    <None Include="package.json" />
+  </ItemGroup>
+
+</Project>
