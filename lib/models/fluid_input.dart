@@ -38,6 +38,33 @@ class FluidInput {
   /// The rate as entered, expressed in [rateUnit].
   final double rateValue;
 
+  /// Serialises to the shape stored on the device.
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    'id': id,
+    'name': name,
+    'dextrosePercent': dextrosePercent,
+    'rateUnit': rateUnit.name,
+    'rateValue': rateValue,
+  };
+
+  /// Rebuilds a line from stored JSON, tolerating anything missing or of the
+  /// wrong type so one bad record cannot wipe out a whole patient list.
+  static FluidInput? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final Object? id = json['id'];
+    if (id is! String || id.isEmpty) return null;
+    return FluidInput(
+      id: id,
+      name: json['name'] is String ? json['name'] as String : '',
+      dextrosePercent: _toDouble(json['dextrosePercent']) ?? 0,
+      rateUnit: RateUnit.values.firstWhere(
+        (RateUnit unit) => unit.name == json['rateUnit'],
+        orElse: () => RateUnit.mlPerHour,
+      ),
+      rateValue: _toDouble(json['rateValue']) ?? 0,
+    );
+  }
+
   FluidInput copyWith({
     String? name,
     double? dextrosePercent,
@@ -52,6 +79,16 @@ class FluidInput {
       rateValue: rateValue ?? this.rateValue,
     );
   }
+}
+
+/// Reads a number that may have been stored as an int, a double, or a string.
+double? _toDouble(Object? value) {
+  final double? parsed = switch (value) {
+    final num n => n.toDouble(),
+    final String s => double.tryParse(s),
+    _ => null,
+  };
+  return parsed != null && parsed.isFinite ? parsed : null;
 }
 
 /// Common NICU fluids, so a line can be set up with one tap.

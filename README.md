@@ -12,14 +12,23 @@ running total of:
 
 ## What it does
 
+- **Several babies at once.** Each patient keeps their own weight and fluid
+  list, and the strip across the top switches between them in one tap. Records
+  are stored on the device, so the app reopens where it was left.
+- **Nothing to save.** Every edit is written as it is typed. There is no save
+  button to forget.
+- **One tap adds a fluid.** The presets along the bottom create the line
+  already named and at the right concentration, leaving only the rate to type.
+- **Duplicate a patient** to carry a set of lines over to the next baby -
+  useful for twins and for a unit's standard regimen.
 - **Multiple fluid lines.** Each line has its own dextrose concentration and
   rate, and shows what it contributes on its own. A stacked bar breaks the total
   GIR down by line, so it is obvious which infusion is carrying the glucose.
 - **Either rate unit.** A line can be entered in mL/hr (how the pump is
   programmed) or mL/kg/day (how the order is often written). Switching the unit
   converts the value, so the line keeps running at the same speed.
-- **One-tap presets** for the fluids that come up most: D5W through D25W, TPN,
-  lipid, saline, and breast milk.
+- **Presets** for the fluids that come up most: D5W through D25W, TPN, lipid,
+  saline, and breast milk.
 - **Practice flags** when a line runs above 12.5% dextrose (usually central
   access) or the total GIR reaches 12 mg/kg/min.
 - **Phone and desktop layouts.** On a phone the totals stay pinned to the bottom
@@ -62,8 +71,9 @@ flutter test
 ```
 
 Covers the calculation layer (conversions, totals, banding, edge cases such as a
-missing weight) and the screen itself (entering a weight and fluids, adding
-lines, switching rate units, and the safety flags).
+missing weight), the patient store (auto-save, restoring records, duplicating,
+deleting, and surviving corrupt storage), and the screen itself (per-patient
+records, one-tap switching and adding, rate units, and the safety flags).
 
 ## Releases
 
@@ -123,11 +133,18 @@ you can never ship an update that installs over an existing copy.
 lib/
   logic/gir_calculator.dart   calculations and banding, no Flutter UI
   logic/formatting.dart       number formatting and lenient parsing
+  logic/patient_store.dart    the patient list, and auto-saving it
   models/fluid_input.dart     a fluid line, rate units, presets
+  models/patient.dart         one baby's record
   screens/                    the calculator screen
-  widgets/                    weight card, fluid card, results panel, totals bar
+  widgets/                    patient strip and card, fluid card,
+                              quick-add row, results panel, totals bar
   theme.dart                  colour scheme and status colours
 ```
+
+Patient records live in `shared_preferences` as JSON, on the device only -
+nothing is sent anywhere. A record that cannot be read back is dropped rather
+than taking the rest of the list with it.
 
 ## Disclaimer
 

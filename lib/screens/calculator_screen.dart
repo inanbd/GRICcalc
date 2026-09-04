@@ -2,72 +2,113 @@ import 'package:flutter/material.dart';
 
 import '../logic/formatting.dart';
 import '../logic/gir_calculator.dart';
+import '../logic/patient_store.dart';
 import '../models/fluid_input.dart';
+import '../models/patient.dart';
 import '../widgets/fluid_card.dart';
+import '../widgets/patient_card.dart';
+import '../widgets/patient_strip.dart';
+import '../widgets/quick_add_row.dart';
 import '../widgets/results_panel.dart';
 import '../widgets/totals_bar.dart';
-import '../widgets/weight_card.dart';
 
 /// Width at which the results move into their own column beside the inputs.
 const double _wideLayoutBreakpoint = 900;
 
 class CalculatorScreen extends StatefulWidget {
-  const CalculatorScreen({super.key});
+  const CalculatorScreen({super.key, this.store});
+
+  /// Injected by tests; the app builds its own.
+  final PatientStore? store;
 
   @override
   State<CalculatorScreen> createState() => _CalculatorScreenState();
 }
 
 class _CalculatorScreenState extends State<CalculatorScreen> {
+  late final PatientStore _store = widget.store ?? PatientStore();
+  late final bool _ownsStore = widget.store == null;
+
+  final TextEditingController _nameController = TextEditingController();
   final TextEditingController _weightController = TextEditingController();
 
-  double? _weightGrams;
-  int _nextId = 0;
-  late List<FluidInput> _fluids = <FluidInput>[_newFluid()];
+  /// The record the text fields currently hold, so they are only rewritten
+  /// when the patient actually changes and never while it is being typed into.
+  String? _boundPatientId;
 
-  FluidInput _newFluid({String name = '', double dextrosePercent = 10}) {
-    return FluidInput(
-      id: 'fluid-${_nextId++}',
-      name: name,
-      dextrosePercent: dextrosePercent,
-      rateUnit: RateUnit.mlPerHour,
-      rateValue: 0,
-    );
+  @override
+  void initState() {
+    super.initState();
+    _store.addListener(_onStoreChanged);
+    if (!_store.isLoaded) {
+      _store.load();
+    } else {
+      _bindControllers();
+    }
   }
 
   @override
   void dispose() {
+    _store.removeListener(_onStoreChanged);
+    _nameController.dispose();
     _weightController.dispose();
+    if (_ownsStore) {
+      // Persist whatever is still sitting in the debounce window.
+      _store.flush();
+      _store.dispose();
+    }
     super.dispose();
   }
 
-  void _addFluid() {
-    setState(() => _fluids = <FluidInput>[..._fluids, _newFluid()]);
+  void _onStoreChanged() {
+    if (!mounted) return;
+    setState(_bindControllers);
   }
 
-  void _removeFluid(String id) {
-    setState(() {
-      _fluids = _fluids
-          .where((FluidInput f) => f.id != id)
-          .toList(growable: false);
-    });
+  /// Loads the selected record into the text fields when the selection moves.
+  void _bindControllers() {
+    final Patient? patient = _store.selected;
+    if (patient == null || patient.id == _boundPatientId) return;
+    _boundPatientId = patient.id;
+    _nameController.text = patient.name;
+    _weightController.text = patient.weightGrams == null
+        ? ''
+        : trimmed(patient.weightGrams!, 1);
   }
 
-  void _updateFluid(FluidInput updated) {
-    setState(() {
-      _fluids = <FluidInput>[
-        for (final FluidInput f in _fluids)
-          if (f.id == updated.id) updated else f,
-      ];
-    });
+  /// Rebinds even if the record is the same one, for edits made to the current
+  /// patient from outside the fields (clearing it, for instance).
+  void _rebindCurrent() {
+    _boundPatientId = null;
+    _bindControllers();
   }
 
-  void _resetAll() {
-    setState(() {
-      _weightController.clear();
-      _weightGrams = null;
-      _fluids = <FluidInput>[_newFluid()];
-    });
+  Future<void> _confirmDelete(Patient patient, int position) async {
+    final bool confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) => AlertDialog(
+            title: Text('Delete ${patient.displayName(position)}?'),
+            content: const Text(
+              'This removes the record and its fluids from this device.',
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+
+    if (!confirmed || !mounted) return;
+    _store.removePatient(patient.id);
+    _rebindCurrent();
   }
 
   void _showResultsSheet(GirSummary summary) {
@@ -91,9 +132,15 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!_store.isLoaded) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
+    final Patient patient = _store.selected!;
+    final int position = _store.selectedIndex + 1;
     final GirSummary summary = summarise(
-      weightGrams: _weightGrams,
-      fluids: _fluids,
+      weightGrams: patient.weightGrams,
+      fluids: patient.fluids,
     );
 
     return LayoutBuilder(
@@ -105,27 +152,34 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
             title: const Text('NICU GIR Calculator'),
             actions: <Widget>[
               IconButton(
-                tooltip: 'Start over',
-                onPressed: _resetAll,
-                icon: const Icon(Icons.restart_alt),
-              ),
-              IconButton(
                 tooltip: 'How this is calculated',
                 onPressed: () => _showFormulaDialog(context),
                 icon: const Icon(Icons.help_outline),
               ),
             ],
+            bottom: PreferredSize(
+              preferredSize: const Size.fromHeight(56),
+              child: PatientStrip(
+                patients: _store.patients,
+                selectedId: patient.id,
+                onSelect: _store.select,
+                onAdd: () {
+                  _store.addPatient();
+                  _rebindCurrent();
+                },
+              ),
+            ),
           ),
           body: isWide
               ? Row(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    Expanded(child: _inputs(summary)),
+                    Expanded(child: _inputs(patient, position, summary)),
                     const VerticalDivider(width: 1),
                     SizedBox(width: 400, child: ResultsPanel(summary: summary)),
                   ],
                 )
-              : _inputs(summary),
+              : _inputs(patient, position, summary),
           bottomNavigationBar: isWide
               ? null
               : TotalsBar(
@@ -137,9 +191,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     );
   }
 
-  Widget _inputs(GirSummary summary) {
-    // One result per fluid while the weight is usable, otherwise null so the
-    // cards hide their readouts rather than showing meaningless zeros.
+  Widget _inputs(Patient patient, int position, GirSummary summary) {
     final Map<String, FluidResult> resultsById = <String, FluidResult>{
       for (final FluidResult r in summary.fluids) r.fluid.id: r,
     };
@@ -147,12 +199,23 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     return ListView(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: <Widget>[
-        WeightCard(
-          controller: _weightController,
-          weightGrams: _weightGrams,
-          onChanged: (String value) {
-            setState(() => _weightGrams = parseNumber(value));
+        PatientCard(
+          nameController: _nameController,
+          weightController: _weightController,
+          weightGrams: patient.weightGrams,
+          patientLabel: 'Patient $position',
+          onNameChanged: _store.setName,
+          onWeightChanged: (String value) =>
+              _store.setWeight(parseNumber(value)),
+          onDuplicate: () {
+            _store.duplicatePatient(patient.id);
+            _rebindCurrent();
           },
+          onClear: () {
+            _store.resetSelected();
+            _rebindCurrent();
+          },
+          onDelete: () => _confirmDelete(patient, position),
         ),
         const SizedBox(height: 24),
         Row(
@@ -160,7 +223,8 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
             Text('Fluids', style: Theme.of(context).textTheme.titleMedium),
             const Spacer(),
             Text(
-              '${_fluids.length} ${_fluids.length == 1 ? 'line' : 'lines'}',
+              '${patient.fluids.length} '
+              '${patient.fluids.length == 1 ? 'line' : 'lines'}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
@@ -168,28 +232,37 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           ],
         ),
         const SizedBox(height: 8),
-        for (int i = 0; i < _fluids.length; i++)
+        for (int i = 0; i < patient.fluids.length; i++)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: FluidCard(
-              key: ValueKey<String>(_fluids[i].id),
-              fluid: _fluids[i],
-              result: resultsById[_fluids[i].id],
+              key: ValueKey<String>(patient.fluids[i].id),
+              fluid: patient.fluids[i],
+              result: resultsById[patient.fluids[i].id],
               index: i,
               weightKg: summary.weightKg,
-              canRemove: _fluids.length > 1,
-              onChanged: _updateFluid,
-              onRemove: () => _removeFluid(_fluids[i].id),
+              canRemove: true,
+              onChanged: _store.updateFluid,
+              onRemove: () => _store.removeFluid(patient.fluids[i].id),
             ),
           ),
-        const SizedBox(height: 4),
-        OutlinedButton.icon(
-          onPressed: _addFluid,
-          icon: const Icon(Icons.add),
-          label: const Text('Add fluid'),
-          style: OutlinedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 16),
+        if (patient.fluids.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text(
+              'No fluids yet - tap one below to add it.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
           ),
+        const SizedBox(height: 8),
+        QuickAddRow(
+          onAddPreset: (FluidPreset preset) => _store.addFluid(
+            name: preset.name,
+            dextrosePercent: preset.dextrosePercent,
+          ),
+          onAddCustom: () => _store.addFluid(),
         ),
       ],
     );
@@ -208,7 +281,7 @@ void _showFormulaDialog(BuildContext context) {
           children: const <Widget>[
             _FormulaEntry(
               title: 'Glucose infusion rate',
-              formula: 'GIR = (rate mL/hr \u00d7 dextrose %) \u00f7 (6 \u00d7 weight kg)',
+              formula: 'GIR = (rate mL/hr × dextrose %) ÷ (6 × weight kg)',
               note:
                   'A dextrose solution labelled "%" carries that many grams per '
                   '100 mL. Converting grams to milligrams and hours to minutes '
@@ -219,7 +292,7 @@ void _showFormulaDialog(BuildContext context) {
               title: 'Worked example',
               formula:
                   'D10W at 4 mL/hr, 1250 g baby\n'
-                  '(4 \u00d7 10) \u00f7 (6 \u00d7 1.25) = 5.33 mg/kg/min',
+                  '(4 × 10) ÷ (6 × 1.25) = 5.33 mg/kg/min',
               note:
                   'The same line delivers 76.8 mL/kg/day and 9.6 g of dextrose '
                   'a day.',
@@ -227,10 +300,10 @@ void _showFormulaDialog(BuildContext context) {
             SizedBox(height: 16),
             _FormulaEntry(
               title: 'Daily fluid',
-              formula: 'mL/kg/day = (rate mL/hr \u00d7 24) \u00f7 weight kg',
+              formula: 'mL/kg/day = (rate mL/hr × 24) ÷ weight kg',
               note:
                   'A rate entered as mL/kg/day is converted the other way: '
-                  'mL/hr = (mL/kg/day \u00d7 weight kg) \u00f7 24.',
+                  'mL/hr = (mL/kg/day × weight kg) ÷ 24.',
             ),
             SizedBox(height: 16),
             _FormulaEntry(

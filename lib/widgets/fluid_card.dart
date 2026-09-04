@@ -61,17 +61,6 @@ class _FluidCardState extends State<FluidCard> {
     super.dispose();
   }
 
-  void _applyPreset(FluidPreset preset) {
-    _name.text = preset.name;
-    _dextrose.text = trimmed(preset.dextrosePercent, 2);
-    widget.onChanged(
-      widget.fluid.copyWith(
-        name: preset.name,
-        dextrosePercent: preset.dextrosePercent,
-      ),
-    );
-  }
-
   /// Switches the rate unit, carrying the equivalent rate across so the line
   /// keeps running at the same speed.
   void _changeUnit(RateUnit unit) {
@@ -142,8 +131,6 @@ class _FluidCardState extends State<FluidCard> {
               ],
             ),
             const SizedBox(height: 4),
-            _PresetChips(onSelected: _applyPreset),
-            const SizedBox(height: 12),
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Row(
@@ -203,33 +190,6 @@ class _FluidCardState extends State<FluidCard> {
             ],
           ],
         ),
-      ),
-    );
-  }
-}
-
-/// One-tap set-up for the fluids that come up most often.
-class _PresetChips extends StatelessWidget {
-  const _PresetChips({required this.onSelected});
-
-  final ValueChanged<FluidPreset> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 36,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        itemCount: FluidPreset.all.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 6),
-        itemBuilder: (BuildContext context, int index) {
-          final FluidPreset preset = FluidPreset.all[index];
-          return ActionChip(
-            label: Text(preset.name),
-            visualDensity: VisualDensity.compact,
-            onPressed: () => onSelected(preset),
-          );
-        },
       ),
     );
   }
