@@ -105,7 +105,9 @@ jobs:
           # how the release was signed.
           "$signer" verify --print-certs "$apk" > certs.txt
           cat certs.txt
-          dn="$(grep 'Signer #1 certificate DN' certs.txt)"
+          # build-tools <=36 prints "Signer #1 certificate DN:", 37+ prints
+          # "V2 Signer: certificate DN:", so match on the common part.
+          dn="$(grep -m1 'certificate DN' certs.txt)"
           if echo "$dn" | grep -q 'CN=Android Debug'; then
             note="These APKs are signed with Android's **debug** key, because no signing secrets are configured. They install for sideloading, but the signature proves nothing about who built them, and a later properly signed build will not install over them. See README.md > Signing releases."
           else
