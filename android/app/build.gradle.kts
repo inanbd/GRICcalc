@@ -30,7 +30,7 @@ val releaseKeystore: File? =
     }?.takeIf { it.exists() }
 
 android {
-    namespace = "com.griccalc.griccalc"
+    namespace = "com.i9tech.gircalculator"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -40,8 +40,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.griccalc.griccalc"
+        applicationId = "com.i9tech.gircalculator"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
