@@ -67,6 +67,34 @@ void main() {
     expect(added.dextrosePercent, 12.5);
   });
 
+  testWidgets('a custom line follows the section it was added from', (
+    WidgetTester tester,
+  ) async {
+    final PatientStore store = await pumpApp(tester);
+
+    // Both sections offer "Custom"; the second one belongs to the feeds.
+    await tester.tap(find.widgetWithText(ActionChip, 'Custom').last);
+    await tester.pumpAndSettle();
+
+    final FluidInput feed = store.selected!.fluids.last;
+    expect(feed.name, isEmpty);
+    expect(feed.route, FluidRoute.enteral);
+    // Ordered per feed at q3h and out of the GIR, like the feed presets.
+    expect(feed.rateUnit, RateUnit.mlPerFeed);
+    expect(feed.feedIntervalHours, 3);
+    expect(feed.countsTowardGir, isFalse);
+    expect(feed.dextrosePercent, 7);
+
+    await tester.tap(find.widgetWithText(ActionChip, 'Custom').first);
+    await tester.pumpAndSettle();
+
+    final FluidInput drip = store.selected!.fluids.last;
+    expect(drip.route, FluidRoute.intravenous);
+    expect(drip.rateUnit, RateUnit.mlPerHour);
+    expect(drip.countsTowardGir, isTrue);
+    expect(drip.dextrosePercent, 10);
+  });
+
   testWidgets('computes a total GIR from weight and rate', (
     WidgetTester tester,
   ) async {
@@ -198,13 +226,10 @@ void main() {
     await enterInto(tester, 'Weight', '2000');
     await enterInto(tester, 'Rate', '10'); // 10 mL/hr
 
-    // Scope to the segmented control: other widgets carry similar labels.
-    await tester.tap(
-      find.descendant(
-        of: find.byType(SegmentedButton<RateUnit>),
-        matching: find.text('mL/kg/d'),
-      ),
-    );
+    // The unit lives in the rate field: open it, then pick the day rate.
+    await tester.tap(find.byTooltip('Rate unit').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('mL/kg/day').last);
     await tester.pumpAndSettle();
 
     // 10 mL/hr in a 2 kg baby is 120 mL/kg/day, and the GIR is unchanged.
@@ -370,14 +395,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(
-      find
-          .descendant(
-            of: find.byType(SegmentedButton<RateUnit>),
-            matching: find.text('mL/hr'),
-          )
-          .last,
-    );
+    await tester.tap(find.byTooltip('Rate unit').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('mL/hr').last);
     await tester.pumpAndSettle();
 
     // 20 mL q3h is 6.67 mL/hr, so the daily volume is unchanged.
@@ -414,6 +434,35 @@ void main() {
     expect(restored.rateValue, 25);
     expect(restored.feedIntervalHours, 3);
     expect(restored.countsTowardGir, isTrue);
+  });
+
+  testWidgets("a line's working stays folded away until it is asked for", (
+    WidgetTester tester,
+  ) async {
+    await pumpApp(tester);
+
+    await enterInto(tester, 'Weight', '1500');
+    await tester.tap(find.widgetWithText(ActionChip, 'Breast milk'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.ancestor(of: find.text('Volume'), matching: find.byType(TextField)),
+      '20',
+    );
+    await tester.pumpAndSettle();
+
+    // Folded up, the line still shows the figure it is there for.
+    expect(find.text('5.19 mg/kg/min'), findsOneWidget);
+    expect(find.text('(not counted)'), findsOneWidget);
+    expect(find.text('TOTAL FLUID'), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.expand_more).last);
+    await tester.pumpAndSettle();
+
+    // 20 mL q3h is 160 mL a day, which over 1.5 kg is 106.7 mL/kg/day.
+    expect(find.text('TOTAL FLUID'), findsOneWidget);
+    expect(find.text('106.7 mL/kg/day'), findsOneWidget);
+    // Feeds per day belongs to the report; the box keeps to volume and glucose.
+    expect(find.text('FEEDS'), findsNothing);
   });
 
   group('appearance', () {

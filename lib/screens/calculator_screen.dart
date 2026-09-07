@@ -291,7 +291,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
     };
 
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       children: <Widget>[
         PatientCard(
           nameController: _nameController,
@@ -311,7 +311,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
           },
           onDelete: () => _confirmDelete(patient, position),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
         Row(
           children: <Widget>[
             Text('Fluids', style: Theme.of(context).textTheme.titleMedium),
@@ -328,7 +328,7 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
         const SizedBox(height: 8),
         for (int i = 0; i < patient.fluids.length; i++)
           Padding(
-            padding: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.only(bottom: 8),
             child: FluidCard(
               key: ValueKey<String>(patient.fluids[i].id),
               fluid: patient.fluids[i],
@@ -358,7 +358,12 @@ class _CalculatorScreenState extends State<CalculatorScreen> {
             dextrosePercent: preset.dextrosePercent,
             route: preset.route,
           ),
-          onAddCustom: () => _addFluid(),
+          onAddCustom: (FluidRoute route) => _addFluid(
+            // A custom feed starts at breast milk's carbohydrate, the way a
+            // custom drip starts at D10W's dextrose.
+            dextrosePercent: route == FluidRoute.enteral ? 7 : 10,
+            route: route,
+          ),
         ),
       ],
     );

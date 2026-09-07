@@ -44,7 +44,7 @@ class PatientCard extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 8, 16),
+        padding: const EdgeInsets.fromLTRB(14, 4, 6, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -106,29 +106,54 @@ class PatientCard extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             Padding(
               padding: const EdgeInsets.only(right: 8),
-              child: TextField(
-                controller: weightController,
-                onChanged: onWeightChanged,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                inputFormatters: <TextInputFormatter>[
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: weightController,
+                      onChanged: onWeightChanged,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: <TextInputFormatter>[
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                      ],
+                      decoration: InputDecoration(
+                        labelText: 'Weight',
+                        hintText: 'e.g. 1250',
+                        suffixText: 'g',
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        errorText: weightLooksWrong
+                            ? 'Enter a weight greater than 0'
+                            : null,
+                      ),
+                    ),
+                  ),
+                  // The kilograms sit beside the field rather than under it, so
+                  // the conversion costs no height. The slot keeps its width
+                  // either way, so the field does not resize as you type.
+                  SizedBox(
+                    width: 78,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 10, top: 12),
+                      child: Text(
+                        hasWeight
+                            ? '= ${trimmed(weightGrams! / 1000, 3)} kg'
+                            : 'in grams',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
-                decoration: InputDecoration(
-                  labelText: 'Weight',
-                  hintText: 'e.g. 1250',
-                  suffixText: 'g',
-                  helperText: hasWeight
-                      ? '= ${trimmed(weightGrams! / 1000, 3)} kg'
-                      : 'Dosing weight in grams',
-                  errorText: weightLooksWrong
-                      ? 'Enter a weight greater than 0'
-                      : null,
-                ),
               ),
             ),
           ],

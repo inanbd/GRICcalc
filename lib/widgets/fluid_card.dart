@@ -6,6 +6,13 @@ import '../logic/gir_calculator.dart';
 import '../models/fluid_input.dart';
 import '../theme.dart';
 
+/// Content padding for the card's fields, tighter than Material's dense
+/// default so that a list of lines takes less of the screen.
+const EdgeInsets _fieldPadding = EdgeInsets.symmetric(
+  horizontal: 10,
+  vertical: 10,
+);
+
 /// One infusion line: name, dextrose concentration, rate, and what it delivers.
 ///
 /// The card owns its text controllers so that editing one line never disturbs
@@ -59,6 +66,10 @@ class _FluidCardState extends State<FluidCard> {
   );
   final FocusNode _rateFocus = FocusNode();
 
+  /// Whether this line's figures are showing. Collapsed to begin with, so a
+  /// list of lines stays short; the choice is per card and is not persisted.
+  bool _showDetails = false;
+
   @override
   void initState() {
     super.initState();
@@ -104,7 +115,7 @@ class _FluidCardState extends State<FluidCard> {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+        padding: const EdgeInsets.fromLTRB(14, 6, 6, 8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -133,8 +144,10 @@ class _FluidCardState extends State<FluidCard> {
                   child: TextField(
                     controller: _name,
                     textCapitalization: TextCapitalization.words,
-                    decoration: const InputDecoration(
-                      labelText: 'Fluid',
+                    decoration: InputDecoration(
+                      // A hint, not a label: an unnamed line still says what to
+                      // type, without a caption sitting over every title.
+                      hintText: widget.fluid.isFeed ? 'Feed' : 'Fluid',
                       border: InputBorder.none,
                       isDense: true,
                     ),
@@ -147,16 +160,26 @@ class _FluidCardState extends State<FluidCard> {
                   tooltip: 'Remove this fluid',
                   onPressed: widget.canRemove ? widget.onRemove : null,
                   icon: const Icon(Icons.close),
+                  // Trimmed from the default 48px target, which alone set the
+                  // height of the title row.
+                  iconSize: 20,
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints.tightFor(
+                    width: 34,
+                    height: 34,
+                  ),
                 ),
               ],
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: 2),
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Expanded(
+                    flex: 3,
                     child: _NumberField(
                       controller: _dextrose,
                       label: widget.fluid.isFeed ? 'Carb' : 'Dextrose',
@@ -168,15 +191,20 @@ class _FluidCardState extends State<FluidCard> {
                   ),
                   const SizedBox(width: 12),
                   Expanded(
+                    flex: 4,
                     child: _NumberField(
                       controller: _rate,
                       focusNode: _rateFocus,
                       label: widget.fluid.rateUnit == RateUnit.mlPerFeed
                           ? 'Volume'
                           : 'Rate',
-                      suffix: widget.fluid.rateUnit == RateUnit.mlPerFeed
-                          ? 'mL'
-                          : widget.fluid.rateUnit.label,
+                      // The unit sits in the field beside the number it
+                      // qualifies, and switching it converts the rate.
+                      unit: _UnitPicker(
+                        unit: widget.fluid.rateUnit,
+                        isFeed: widget.fluid.isFeed,
+                        onChanged: _changeUnit,
+                      ),
                       onChanged: (double? value) => widget.onChanged(
                         widget.fluid.copyWith(rateValue: value ?? 0),
                       ),
@@ -194,41 +222,8 @@ class _FluidCardState extends State<FluidCard> {
                 ],
               ),
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: SegmentedButton<RateUnit>(
-                    segments: <ButtonSegment<RateUnit>>[
-                      if (widget.fluid.isFeed)
-                        const ButtonSegment<RateUnit>(
-                          value: RateUnit.mlPerFeed,
-                          label: Text('Per feed'),
-                        ),
-                      const ButtonSegment<RateUnit>(
-                        value: RateUnit.mlPerHour,
-                        label: Text('mL/hr'),
-                      ),
-                      const ButtonSegment<RateUnit>(
-                        value: RateUnit.mlPerKgPerDay,
-                        label: Text('mL/kg/d'),
-                      ),
-                    ],
-                    selected: <RateUnit>{widget.fluid.rateUnit},
-                    showSelectedIcon: false,
-                    style: const ButtonStyle(
-                      visualDensity: VisualDensity.compact,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    onSelectionChanged: (Set<RateUnit> selection) =>
-                        _changeUnit(selection.first),
-                  ),
-                ),
-                const SizedBox(width: 8),
-              ],
-            ),
             if (widget.fluid.isFeed) ...<Widget>[
-              const SizedBox(height: 8),
+              const SizedBox(height: 4),
               _CountInGirSwitch(
                 value: widget.fluid.countsTowardGir,
                 onChanged: (bool value) => widget.onChanged(
@@ -237,8 +232,13 @@ class _FluidCardState extends State<FluidCard> {
               ),
             ],
             if (widget.result != null) ...<Widget>[
-              const SizedBox(height: 12),
-              _LineReadout(result: widget.result!, accent: accent),
+              const SizedBox(height: 8),
+              _LineReadout(
+                result: widget.result!,
+                accent: accent,
+                expanded: _showDetails,
+                onToggle: () => setState(() => _showDetails = !_showDetails),
+              ),
             ],
           ],
         ),
@@ -263,13 +263,16 @@ class _IntervalPicker extends StatelessWidget {
     }.toList()..sort();
 
     return SizedBox(
-      width: 132,
+      width: 96,
       child: DropdownButtonFormField<double>(
         initialValue: options.contains(hours) ? hours : null,
         isDense: true,
         // Let the value shrink to the box rather than overflow it.
         isExpanded: true,
-        decoration: const InputDecoration(labelText: 'Every'),
+        decoration: const InputDecoration(
+          labelText: 'Every',
+          contentPadding: _fieldPadding,
+        ),
         items: <DropdownMenuItem<double>>[
           for (final double option in options)
             DropdownMenuItem<double>(
@@ -300,7 +303,7 @@ class _CountInGirSwitch extends StatelessWidget {
       onTap: () => onChanged(!value),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(
           children: <Widget>[
             Switch(
@@ -323,58 +326,120 @@ class _CountInGirSwitch extends StatelessWidget {
 }
 
 /// What this one line contributes, updated as you type.
+///
+/// Collapsed to its headline by default: the GIR stays in view, and the rest of
+/// the working stays out of the way until it is asked for.
 class _LineReadout extends StatelessWidget {
-  const _LineReadout({required this.result, required this.accent});
+  const _LineReadout({
+    required this.result,
+    required this.accent,
+    required this.expanded,
+    required this.onToggle,
+  });
 
   final FluidResult result;
   final Color accent;
 
+  /// Whether the figures under the headline are showing.
+  final bool expanded;
+  final VoidCallback onToggle;
+
   @override
   Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
     final RateUnit unit = result.fluid.rateUnit;
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: accent.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(10),
       ),
-      child: Wrap(
-        spacing: 16,
-        runSpacing: 6,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          _Stat(
-            label: result.countsTowardGir ? 'GIR' : 'GIR (not counted)',
-            value: '${fixed(result.gir, 2)} mg/kg/min',
-            emphasise: true,
-            muted: !result.countsTowardGir,
+          InkWell(
+            onTap: onToggle,
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 5, 5, 5),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    // Wraps rather than overflows when the type is scaled up.
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: <Widget>[
+                        Text(
+                          'GIR',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            letterSpacing: 0.6,
+                          ),
+                        ),
+                        Text(
+                          '${fixed(result.gir, 2)} mg/kg/min',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: result.countsTowardGir
+                                ? null
+                                : theme.colorScheme.onSurfaceVariant,
+                            fontFeatures: const <FontFeature>[
+                              FontFeature.tabularFigures(),
+                            ],
+                          ),
+                        ),
+                        if (!result.countsTowardGir)
+                          Text(
+                            '(not counted)',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    expanded ? Icons.expand_less : Icons.expand_more,
+                    size: 20,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ],
+              ),
+            ),
           ),
-          if (result.feedsPerDay != null)
-            _Stat(
-              label: 'Feeds',
-              value: '${trimmed(result.feedsPerDay!, 1)}/day',
+          if (expanded)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Wrap(
+                spacing: 16,
+                runSpacing: 6,
+                children: <Widget>[
+                  // Show the equivalent in a unit that was not typed in.
+                  if (unit == RateUnit.mlPerHour)
+                    _Stat(
+                      label: 'Daily',
+                      value: '${trimmed(result.mlPerKgPerDay, 1)} mL/kg/day',
+                    )
+                  else
+                    _Stat(
+                      label: 'Rate',
+                      value: '${trimmed(result.mlPerHour, 2)} mL/hr',
+                    ),
+                  if (unit == RateUnit.mlPerFeed)
+                    _Stat(
+                      label: 'Total fluid',
+                      value: '${trimmed(result.mlPerKgPerDay, 1)} mL/kg/day',
+                    ),
+                  _Stat(
+                    label: 'Glucose',
+                    value: '${trimmed(result.glucoseGramsPerDay, 2)} g/day',
+                  ),
+                ],
+              ),
             ),
-          // Show the equivalent in a unit that was not typed in.
-          if (unit == RateUnit.mlPerHour)
-            _Stat(
-              label: 'Daily',
-              value: '${trimmed(result.mlPerKgPerDay, 1)} mL/kg/day',
-            )
-          else
-            _Stat(
-              label: 'Rate',
-              value: '${trimmed(result.mlPerHour, 2)} mL/hr',
-            ),
-          if (unit == RateUnit.mlPerFeed)
-            _Stat(
-              label: 'Volume',
-              value: '${trimmed(result.mlPerHour * 24, 1)} mL/day',
-            ),
-          _Stat(
-            label: 'Glucose',
-            value: '${trimmed(result.glucoseGramsPerDay, 2)} g/day',
-          ),
         ],
       ),
     );
@@ -382,19 +447,10 @@ class _LineReadout extends StatelessWidget {
 }
 
 class _Stat extends StatelessWidget {
-  const _Stat({
-    required this.label,
-    required this.value,
-    this.emphasise = false,
-    this.muted = false,
-  });
+  const _Stat({required this.label, required this.value});
 
   final String label;
   final String value;
-  final bool emphasise;
-
-  /// Dims a figure that is displayed but excluded from the totals.
-  final bool muted;
 
   @override
   Widget build(BuildContext context) {
@@ -413,8 +469,7 @@ class _Stat extends StatelessWidget {
         Text(
           value,
           style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: emphasise ? FontWeight.w700 : FontWeight.w500,
-            color: muted ? theme.colorScheme.onSurfaceVariant : null,
+            fontWeight: FontWeight.w500,
             fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],
           ),
         ),
@@ -424,19 +479,29 @@ class _Stat extends StatelessWidget {
 }
 
 /// A decimal field that reports parsed values, tolerating comma separators.
+///
+/// The unit goes in the field itself - as [suffix] text, or as [unit] when it
+/// is something the reader can change.
 class _NumberField extends StatelessWidget {
   const _NumberField({
     required this.controller,
     required this.label,
-    required this.suffix,
     required this.onChanged,
+    this.suffix,
+    this.unit,
     this.focusNode,
-  });
+  }) : assert(suffix == null || unit == null, 'one unit, not two');
 
   final TextEditingController controller;
   final String label;
-  final String suffix;
   final ValueChanged<double?> onChanged;
+
+  /// A fixed unit, written after the value.
+  final String? suffix;
+
+  /// A unit the reader can change, sitting where [suffix] would.
+  final Widget? unit;
+
   final FocusNode? focusNode;
 
   @override
@@ -448,8 +513,87 @@ class _NumberField extends StatelessWidget {
       inputFormatters: <TextInputFormatter>[
         FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
       ],
-      decoration: InputDecoration(labelText: label, suffixText: suffix),
+      decoration: InputDecoration(
+        labelText: label,
+        suffixText: suffix,
+        suffixIcon: unit,
+        // Without this the suffix would be padded out to a 48px icon slot,
+        // leaving the number almost no room.
+        suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+        // Tighter than the dense default of (12, 16, 12, 8): four pixels off
+        // every field, and the interval picker beside it matches.
+        contentPadding: _fieldPadding,
+      ),
       onChanged: (String value) => onChanged(parseNumber(value)),
+    );
+  }
+}
+
+/// The unit a rate is written in, sitting in the rate field beside the number.
+///
+/// Closed it is abbreviated so the number keeps the room; the menu spells each
+/// unit out. Feeds can also be ordered as a volume per feed.
+class _UnitPicker extends StatelessWidget {
+  const _UnitPicker({
+    required this.unit,
+    required this.isFeed,
+    required this.onChanged,
+  });
+
+  final RateUnit unit;
+  final bool isFeed;
+  final ValueChanged<RateUnit> onChanged;
+
+  /// What the closed picker reads. A per-feed volume says only "mL": the
+  /// interval picker beside it supplies the rest.
+  static String _closed(RateUnit unit) => switch (unit) {
+    RateUnit.mlPerHour => 'mL/hr',
+    RateUnit.mlPerKgPerDay => 'mL/kg/d',
+    RateUnit.mlPerFeed => 'mL',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final List<RateUnit> options = <RateUnit>[
+      if (isFeed) RateUnit.mlPerFeed,
+      RateUnit.mlPerHour,
+      RateUnit.mlPerKgPerDay,
+    ];
+    final TextStyle? style = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+
+    // A DropdownButton would reserve the width of its longest unit and crowd
+    // the number out of a narrow field; this is only as wide as what it shows.
+    return PopupMenuButton<RateUnit>(
+      tooltip: 'Rate unit',
+      initialValue: unit,
+      padding: EdgeInsets.zero,
+      position: PopupMenuPosition.under,
+      onSelected: onChanged,
+      itemBuilder: (BuildContext context) => <PopupMenuEntry<RateUnit>>[
+        for (final RateUnit option in options)
+          CheckedPopupMenuItem<RateUnit>(
+            value: option,
+            checked: option == unit,
+            child: Text(option.label),
+          ),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.only(left: 2, right: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(_closed(unit), style: style),
+            Icon(
+              Icons.arrow_drop_down,
+              size: 18,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
